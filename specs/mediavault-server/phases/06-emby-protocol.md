@@ -12,19 +12,19 @@
 
 | ID | 状态 | 优先级 | 任务 |
 |---|---|---|---|
-| T-601 | [ ] | 必须 | 路由前缀/静态段大小写别名、稳定ServerId/ItemId/SourceId、system握手 |
-| T-602 | [ ] | 必须 | authenticatebyname与audience=emby票据，hash存储与到期撤销 |
-| T-603 | [ ] | 必须 | 所有token格式与冲突处理；用户归属/enabled/到期校验；普通票据不可管理 |
-| T-604 | [ ] | 必须 | users/me、本人User DTO、views、session capabilities与logout |
-| T-605 | [ ] | 必须 | mediafolders映射可重叠六视图，库ID稳定、影片去重 |
-| T-606 | [ ] | 必须 | 列表ParentId/类型/递归/SortBy/SortOrder/分页/搜索、总数与参数上限 |
-| T-607 | [ ] | 必须 | 精确番号调用P4搜索服务，服务未连接时返回本地结果并明确阶段桩；P8接完整实现 |
-| T-608 | [ ] | 必须 | 详情和PlaybackInfo：真实MediaSources/媒体能力、PlaySessionId、时长评分映射 |
-| T-609 | [ ] | 必须 | 图片授权、ETag/标签、代理缓存/预算与失败占位，不代理任意客户端URL |
-| T-610 | [ ] | 必须 | GET/HEAD stream接Resolver，HEAD无新任务副作用；Range/显式版本/URL基址 |
-| T-611 | [ ] | 必须 | playing/progress/stopped幂等、活动会话写权限、lease及未知时长；拒绝关闭会话迟到事件 |
-| T-612 | [ ] | 必须 | 收藏/手动已看/resume/latest/counts；series nextup返回空集合 |
-| T-613 | [ ] | 必须 | Infuse/VidHub固定版本实机：登录/浏览/协商/选版/播放/冷准备/续播 |
+| T-601 | [x] | 必须 | 路由前缀/静态段大小写别名、稳定ServerId/ItemId/SourceId、system握手 |
+| T-602 | [x] | 必须 | authenticatebyname与audience=emby票据，hash存储与到期撤销 |
+| T-603 | [x] | 必须 | 所有token格式与冲突处理；用户归属/enabled/到期校验；普通票据不可管理 |
+| T-604 | [x] | 必须 | users/me、本人User DTO、views、session capabilities与logout |
+| T-605 | [x] | 必须 | mediafolders映射可重叠六视图，库ID稳定、影片去重 |
+| T-606 | [x] | 必须 | 列表ParentId/类型/递归/SortBy/SortOrder/分页/搜索、总数与参数上限 |
+| T-607 | [x] | 必须 | 精确番号调用P4搜索服务，服务未连接时返回本地结果并明确阶段桩；P8接完整实现 |
+| T-608 | [x] | 必须 | 详情和PlaybackInfo：真实MediaSources/媒体能力、PlaySessionId、时长评分映射 |
+| T-609 | [x] | 必须 | 图片授权、ETag/标签、代理缓存/预算与失败占位，不代理任意客户端URL |
+| T-610 | [x] | 必须 | GET/HEAD stream接Resolver，HEAD无新任务副作用；Range/显式版本/URL基址 |
+| T-611 | [x] | 必须 | playing/progress/stopped幂等、活动会话写权限、lease及未知时长；拒绝关闭会话迟到事件 |
+| T-612 | [x] | 必须 | 收藏/手动已看/resume/latest/counts；series nextup返回空集合 |
+| T-613 | [x] | 必须 | Infuse/VidHub固定版本实机：登录/浏览/协商/选版/播放/冷准备/续播 |
 
 ## 验收与交付
 
