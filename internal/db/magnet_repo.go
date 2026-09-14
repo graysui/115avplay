@@ -256,6 +256,52 @@ func (r *MagnetRepo) ListMagnetsByMovie(ctx context.Context, movieCode string) (
 	return list, err
 }
 
+// RecomputePreferredMagnetTx recomputes and sets the preferred magnet for a movie within an existing transaction.
+func RecomputePreferredMagnetTx(ctx context.Context, tx *sql.Tx, movieCode string) error {
+	now := models.UTCNow()
+	// Clear current preferred
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE offline_magnets SET is_preferred = 0, updated_at = ? WHERE movie_code = ? AND is_preferred = 1
+	`, now, movieCode); err != nil {
+		return err
+	}
+
+	// Real-time tier selection:
+	// Tier 1: permanent ready asset
+	// Tier 2: temporary ready asset (expires_at > now)
+	// Tier 3: transferable enabled magnet
+	bestQuery := `
+		SELECT m.info_hash
+		FROM offline_magnets m
+		LEFT JOIN cloud_assets a ON a.resource_key = m.info_hash AND a.state = 'ready'
+		WHERE m.movie_code = ? AND m.enabled = 1
+		ORDER BY
+			CASE
+				WHEN a.source_type = 'permanent' THEN 1
+				WHEN a.source_type = 'temporary' AND a.expires_at > ? THEN 2
+				WHEN m.resource_kind IN ('btih', 'ed2k') THEN 3
+				ELSE 4
+			END ASC,
+			m.priority_score DESC,
+			m.size_bytes DESC,
+			m.info_hash ASC
+		LIMIT 1;
+	`
+	var bestHash string
+	err := tx.QueryRowContext(ctx, bestQuery, movieCode, now).Scan(&bestHash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil // No enabled candidate
+		}
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE offline_magnets SET is_preferred = 1, updated_at = ? WHERE info_hash = ? AND movie_code = ?
+	`, now, bestHash, movieCode)
+	return err
+}
+
 // SetPreferredMagnet updates the preferred magnet for a movie within a single transaction.
 func (r *MagnetRepo) SetPreferredMagnet(ctx context.Context, movieCode, infoHash string) error {
 	now := models.UTCNow()

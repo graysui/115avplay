@@ -229,6 +229,44 @@ type Alert struct {
 	DeliveryError    *string `json:"delivery_error,omitempty"`
 }
 
+// IngestAsset tracks a downloaded and processed release asset.
+type IngestAsset struct {
+	ID               string  `json:"id"`
+	RunID            string  `json:"run_id"`
+	ReleaseID        string  `json:"release_id"`
+	Source           string  `json:"source"`
+	AssetName        string  `json:"asset_name"`
+	SHA256           string  `json:"sha256"`
+	SizeBytes        int64   `json:"size_bytes"`
+	CoverageStart    *string `json:"coverage_start,omitempty"`
+	CoverageEnd      *string `json:"coverage_end,omitempty"`
+	State            string  `json:"state"` // downloaded, processing, completed, failed
+	LastCommittedRow int     `json:"last_committed_row"`
+	CountsJSON       string  `json:"counts_json"`
+	LastError        *string `json:"last_error,omitempty"`
+	UpdatedAt        string  `json:"updated_at"`
+}
+
+// ScanRun tracks a 115 directory scan execution.
+type ScanRun struct {
+	ID          string  `json:"id"`
+	JobID       string  `json:"job_id"`
+	BindingID   string  `json:"binding_id"`
+	RootID      string  `json:"root_id"`
+	Mode        string  `json:"mode"` // full, incremental
+	State       string  `json:"state"` // running, completed, failed
+	StartedAt   string  `json:"started_at"`
+	CompletedAt *string `json:"completed_at,omitempty"`
+	LastError   *string `json:"last_error,omitempty"`
+}
+
+// ScanSeen tracks files observed during a scan.
+type ScanSeen struct {
+	ScanID      string  `json:"scan_id"`
+	FileID      string  `json:"file_id"`
+	ResourceKey *string `json:"resource_key,omitempty"`
+}
+
 // UTCNow returns the current UTC timestamp formatted in RFC3339 (seconds precision).
 func UTCNow() string {
 	return time.Now().UTC().Format(time.RFC3339)

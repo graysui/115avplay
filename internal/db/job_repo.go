@@ -177,6 +177,72 @@ func (r *JobRepo) ClaimNextJob(ctx context.Context, kind, leaseOwner string, lea
 	return &claimed, nil
 }
 
+// ClaimJobByID attempts to claim a specific job by ID.
+func (r *JobRepo) ClaimJobByID(ctx context.Context, jobID, leaseOwner string, leaseDuration time.Duration) (*models.Job, error) {
+	now := models.UTCNow()
+	leaseUntil := time.Now().UTC().Add(leaseDuration).Format(time.RFC3339)
+
+	var claimed models.Job
+	var found bool
+
+	err := r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		row := tx.QueryRowContext(ctx, `
+			SELECT id, kind, dedupe_key, resource_key, binding_id, state, generation,
+			       lease_owner, lease_until, attempts, next_run_at, deadline_at,
+			       remote_id, owned_root_id, params_json, result_json, last_error,
+			       started_at, completed_at, created_at, updated_at
+			FROM jobs
+			WHERE id = ? AND state IN ('queued', 'retry_wait')
+		`, jobID)
+
+		err := row.Scan(
+			&claimed.ID, &claimed.Kind, &claimed.DedupeKey, &claimed.ResourceKey, &claimed.BindingID,
+			&claimed.State, &claimed.Generation, &claimed.LeaseOwner, &claimed.LeaseUntil,
+			&claimed.Attempts, &claimed.NextRunAt, &claimed.DeadlineAt, &claimed.RemoteID,
+			&claimed.OwnedRootID, &claimed.ParamsJSON, &claimed.ResultJSON, &claimed.LastError,
+			&claimed.StartedAt, &claimed.CompletedAt, &claimed.CreatedAt, &claimed.UpdatedAt,
+		)
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		newGen := claimed.Generation + 1
+		res, err := tx.ExecContext(ctx, `
+			UPDATE jobs
+			SET state = 'running', lease_owner = ?, lease_until = ?, generation = ?,
+			    attempts = attempts + 1, started_at = COALESCE(started_at, ?), updated_at = ?
+			WHERE id = ? AND generation = ?
+		`, leaseOwner, leaseUntil, newGen, now, now, claimed.ID, claimed.Generation)
+		if err != nil {
+			return err
+		}
+		rows, _ := res.RowsAffected()
+		if rows == 0 {
+			return nil
+		}
+
+		claimed.State = "running"
+		claimed.LeaseOwner = &leaseOwner
+		claimed.LeaseUntil = &leaseUntil
+		claimed.Generation = newGen
+		claimed.Attempts++
+		claimed.UpdatedAt = now
+		found = true
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("claim job by id: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("job %s could not be claimed (not in queued/retry_wait or race)", jobID)
+	}
+	return &claimed, nil
+}
+
 // RenewLease extends lease expiration for a running job with matching generation and leaseOwner.
 func (r *JobRepo) RenewLease(ctx context.Context, jobID, leaseOwner string, generation int, leaseDuration time.Duration) error {
 	now := models.UTCNow()
