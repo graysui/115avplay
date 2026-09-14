@@ -1,0 +1,515 @@
+{
+  "audit_date": "2026-09-14",
+  "scope": "Local documentation contracts only; no production-code review or external API/client verification.",
+  "read_only_database": {
+    "path": "data/offline_full_merged.db",
+    "size_bytes": 369967104,
+    "sqlite_version_used": "3.50.4",
+    "connection": "URI mode=ro plus PRAGMA query_only=ON",
+    "schema": {
+      "offline_movies": {
+        "columns": [
+          {
+            "cid": 0,
+            "name": "code",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "cid": 1,
+            "name": "title",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 2,
+            "name": "category",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 3,
+            "name": "publish_date",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 4,
+            "name": "preview_images",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 5,
+            "name": "source_websites",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 6,
+            "name": "title_zh",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 7,
+            "name": "description_zh",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 8,
+            "name": "cover_url",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 9,
+            "name": "poster_url",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 10,
+            "name": "actors",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": "'[]'",
+            "pk": 0
+          },
+          {
+            "cid": 11,
+            "name": "tags",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": "'[]'",
+            "pk": 0
+          },
+          {
+            "cid": 12,
+            "name": "maker",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 13,
+            "name": "director",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 14,
+            "name": "score",
+            "type": "REAL",
+            "notnull": 0,
+            "default": "0.0",
+            "pk": 0
+          },
+          {
+            "cid": 15,
+            "name": "is_enriched",
+            "type": "INTEGER",
+            "notnull": 0,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "cid": 16,
+            "name": "scrape_status",
+            "type": "INTEGER",
+            "notnull": 0,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "cid": 17,
+            "name": "scrape_failed_reason",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 18,
+            "name": "scrape_retry_count",
+            "type": "INTEGER",
+            "notnull": 0,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "cid": 19,
+            "name": "last_scraped_at",
+            "type": "DATETIME",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          }
+        ],
+        "foreign_keys": []
+      },
+      "offline_magnets": {
+        "columns": [
+          {
+            "cid": 0,
+            "name": "info_hash",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 1
+          },
+          {
+            "cid": 1,
+            "name": "movie_code",
+            "type": "TEXT",
+            "notnull": 1,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 2,
+            "name": "magnet_url",
+            "type": "TEXT",
+            "notnull": 1,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 3,
+            "name": "title",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 4,
+            "name": "size_mb",
+            "type": "INTEGER",
+            "notnull": 0,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "cid": 5,
+            "name": "section",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 6,
+            "name": "quality_label",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": "'1080P'",
+            "pk": 0
+          },
+          {
+            "cid": 7,
+            "name": "website",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 8,
+            "name": "publish_date",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 9,
+            "name": "priority_score",
+            "type": "INTEGER",
+            "notnull": 0,
+            "default": "50",
+            "pk": 0
+          },
+          {
+            "cid": 10,
+            "name": "is_preferred",
+            "type": "BOOLEAN",
+            "notnull": 0,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "cid": 11,
+            "name": "source_type",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": "'temporary'",
+            "pk": 0
+          },
+          {
+            "cid": 12,
+            "name": "storage_cid",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 13,
+            "name": "target_file_id",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 14,
+            "name": "target_pick_code",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 15,
+            "name": "target_file_name",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 16,
+            "name": "target_file_size",
+            "type": "INTEGER",
+            "notnull": 0,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "cid": 17,
+            "name": "target_container",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": "'mp4'",
+            "pk": 0
+          },
+          {
+            "cid": 18,
+            "name": "transfer_status",
+            "type": "INTEGER",
+            "notnull": 0,
+            "default": "0",
+            "pk": 0
+          },
+          {
+            "cid": 19,
+            "name": "is_available",
+            "type": "BOOLEAN",
+            "notnull": 0,
+            "default": "1",
+            "pk": 0
+          },
+          {
+            "cid": 20,
+            "name": "temp_expire_at",
+            "type": "DATETIME",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          },
+          {
+            "cid": 21,
+            "name": "last_error",
+            "type": "TEXT",
+            "notnull": 0,
+            "default": null,
+            "pk": 0
+          }
+        ],
+        "foreign_keys": [
+          [
+            0,
+            0,
+            "offline_movies",
+            "movie_code",
+            "code",
+            "NO ACTION",
+            "NO ACTION",
+            "NONE"
+          ]
+        ]
+      }
+    }
+  },
+  "recorded_aggregate_queries": [
+    {
+      "sql": "SELECT COUNT(*) FROM offline_movies",
+      "result": 212034
+    },
+    {
+      "sql": "SELECT COUNT(*) FROM offline_magnets",
+      "result": 326808
+    },
+    {
+      "sql": "SELECT COUNT(*) FROM offline_magnets WHERE is_available=1 AND (target_pick_code IS NULL OR target_pick_code='')",
+      "result": 326808
+    },
+    {
+      "sql": "SELECT COUNT(*) FROM offline_movies WHERE is_enriched=1 AND (description_zh IS NULL OR trim(description_zh)='')",
+      "result": 18239
+    },
+    {
+      "sql": "SELECT is_enriched,COUNT(*) FROM offline_movies GROUP BY is_enriched",
+      "result": [
+        [
+          0,
+          19610
+        ],
+        [
+          1,
+          108377
+        ],
+        [
+          2,
+          84047
+        ]
+      ]
+    },
+    {
+      "sql": "SELECT COUNT(*) FROM (SELECT movie_code FROM offline_magnets WHERE is_preferred=1 GROUP BY movie_code HAVING COUNT(*)>1)",
+      "result": 0
+    },
+    {
+      "sql": "SELECT COUNT(*) FROM (SELECT movie_code FROM offline_magnets GROUP BY movie_code HAVING COUNT(*)=1)",
+      "result": 131668
+    },
+    {
+      "sql": "SELECT COUNT(*) FROM offline_movies WHERE publish_date IS NULL",
+      "result": 0
+    }
+  ],
+  "in_memory_document_ddl": {
+    "source": "docs/PROJECT_SPEC_GO_VIRTUAL_MEDIA_SERVER.md SQL fences containing CREATE TABLE",
+    "tables": 9,
+    "explicit_indexes": 15,
+    "default_settings": 15,
+    "execution": "success"
+  },
+  "in_memory_migration_probes": {
+    "setup": "CREATE TABLE legacy (code TEXT PRIMARY KEY, publish_date TEXT NOT NULL); INSERT INTO legacy VALUES ('A','2026-01-01');",
+    "results": [
+      {
+        "sql": "ALTER TABLE legacy ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+        "error": "Cannot add a column with non-constant default"
+      },
+      {
+        "sql": "ALTER TABLE legacy ADD COLUMN IF NOT EXISTS updated_at DATETIME",
+        "error": "near \"EXISTS\": syntax error"
+      }
+    ]
+  },
+  "document_go_snippets": {
+    "method": "Extracted Go fences, combined with a temporary main, executed using go run. GOTOOLCHAIN=local, GOWORK=off, GO111MODULE=off, GOTELEMETRY=off. Existing project scripts were not executed.",
+    "exit_code": 0,
+    "normalization": [
+      {
+        "input": "IPX-123",
+        "actual": "IPX-123"
+      },
+      {
+        "input": "SSNI-999_CH_HD",
+        "actual": ""
+      },
+      {
+        "input": "IPX123",
+        "actual": "IPX1-23"
+      },
+      {
+        "input": "H264-1080 IPX-123",
+        "actual": ""
+      },
+      {
+        "input": "FC2-PPV-1234567",
+        "actual": "FC2-PPV-1234567"
+      }
+    ],
+    "priority": {
+      "only_resource_1080p_4096mb": 999999,
+      "existing_fixed_score_in_spec": 900000,
+      "no_subtitle_1080p_4096mb": 110400,
+      "ordinary_4k_4096mb": 25400,
+      "censored_720p_4096mb": 5400,
+      "unknown_1080p_4096mb": 10400
+    }
+  },
+  "estimates_arithmetic": {
+    "sequential_person_days": [
+      27,
+      37
+    ],
+    "parallel_dependency_lower_upper_days": [
+      20,
+      28
+    ],
+    "longest_path_under_table_dependencies": [
+      "P0",
+      "P1",
+      "P3",
+      "P4",
+      "P5",
+      "P7",
+      "P8"
+    ],
+    "caveat": "Parallel figure assumes sufficient staffing and excludes coordination, validation, and contingency."
+  },
+  "audited_markdown_count": 16,
+  "source_sha256": {
+    "docs/PROJECT_SPEC_GO_VIRTUAL_MEDIA_SERVER.md": "2b5c81ff4a129c451075be512d35f4ffa08581283570034ebeee3eb6d5c77e38",
+    "docs/MEDIA_LIBRARY_SPEC.md": "44392b6eb3a23b5457cc2d866c135e9a74140d416d1a31b60ed6ed369a4b6464",
+    "specs/mediavault-server/phases/00-foundation.md": "2bf13b2390a094b50fb1fb3f598a0815983d04dabd065320bdb8a15084469d04",
+    "specs/mediavault-server/phases/01-data-layer.md": "60a324d5a6c8d78d277008c48ff239ca909b5f8a3a3735ab2966bf55123d7e73",
+    "specs/mediavault-server/phases/02-115-client.md": "866a7fade1fa14f63145fea352a43f5179386c5597f8a43b4057d44fdca68f5e",
+    "specs/mediavault-server/phases/03-ingestion.md": "b6a95010d698563225efbb7c1ee8df029c635298f7e8146dbaf6e8c20f3bb09b",
+    "specs/mediavault-server/phases/04-scraping.md": "7a416fcba511f828985da655c952ad76da4014f71451787c247e5b1b389c2b35",
+    "specs/mediavault-server/phases/05-playback-115.md": "581d65b5bc24b7c03c98e402e1f09b64e520fc8a385d114f76d856b45a50f8ae",
+    "specs/mediavault-server/phases/06-emby-protocol.md": "1aee6998d68aea5e3205204000b160c6183959e951c2373bcdad96f27055e63a",
+    "specs/mediavault-server/phases/07-admin-console.md": "95d9f7599b9e7cb55fb45a4a9e9825678cfe0f5219e5f15eb30ced7afd414665",
+    "specs/mediavault-server/phases/08-hardening-release.md": "f093f3c180388d73f691a95bcb204d56ca9b85e08f9bb8465fb46c8e2c3f4b18",
+    "specs/mediavault-server/plan.md": "f866f6e8239ff9f428480a0c5b6317ff8b8258e7086dd76c483cf43abe9a00c6",
+    "specs/mediavault-server/spec.md": "83d4f3602425becc247e6130bbfc78b8414fe9c8e5a41116e4a2791e1b3160e9",
+    "references/115_openapi_field_spec.md": "bbcfdc20c5faaef9f1212724f0f1131073153418fa11d097d6718bc1fdf23c92",
+    "references/115_tree_scan_and_cleanup_spec.md": "d82fac1b79f02ae4e77ff237e4997250ee4f84d96968e437da45a47b80581d2f",
+    "references/emby_protocol_endpoints.md": "508a303ceb55ed4fbd13aa9f7ab40366e5f4451d0b27498a3d44bc61fc23714f"
+  },
+  "not_verified": [
+    "Live 115 OAuth/offline/downurl/deletion",
+    "Current JavDB online API responses",
+    "Infuse/VidHub/Kodi/browser behavior",
+    "Service performance or service build"
+  ]
+}

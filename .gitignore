@@ -1,0 +1,12 @@
+# 本地数据库、下载包与缓存不纳入版本管理
+/data/
+__pycache__/
+*.py[cod]
+
+# 本机配置与构建产物
+.env
+.env.*
+!.env.example
+/bin/
+/web/node_modules/
+/web/dist/
