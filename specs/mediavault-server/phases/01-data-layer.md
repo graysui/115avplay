@@ -1,39 +1,36 @@
-# P1 · 数据层与模型
+# P1 · 数据、迁移与领域纯函数
 
-> 上级计划：[`../plan.md`](../plan.md) ｜ 需求：[`../spec.md`](../spec.md) FR-DATA
-> 对应设计：`PROJECT_SPEC` §4.1 / §4.2 / §4.3 / §4.4
+[总计划](../plan.md) · [需求](../spec.md) · [追踪](../traceability.md)
 
-## 目标
-落地全部 9 张表、模型与查询封装，并具备**旧库兼容迁移**能力。
+## 范围与依赖
 
-## 前置依赖
-P0（[`00-foundation.md`](./00-foundation.md)）完成迁移框架与 DB 连接。
+前置：P0。
+
+对应设计：主设计§4～7；docs/database_schema.sql、DATABASE_MIGRATION.md。对应需求：FR-DATA-1～4、FR-OPS-4、FR-SCRAPE-4。本文件定义待实施任务，不是通过记录。
 
 ## 任务清单
 
-| ID | 任务 | 优先级 |
-|---|---|---|
-| T-101 | `offline_movies` DDL（含 `created_at`/`updated_at`、`is_enriched` 0/1/2/3 语义注释） | P0 |
-| T-102 | `offline_magnets` DDL（含 `resource_kind` CHECK、`priority_score`、部分唯一索引 `idx_off_mag_preferred`） | P0 |
-| T-103 | 运行时 6 表 DDL：`users`/`auth_sessions`/`user_progress`/`play_sessions`/`libraries`/`system_settings` | P0 |
-| T-104 | 初始化数据：6 条 `libraries`、默认 `system_settings`（TTL/并发/代理等 15 项） | P0 |
-| T-105 | models 实体：`movie`/`magnet`/`user`/`auth_session`/`play_session`/`progress`/`library`/`setting` | P0 |
-| T-106 | 查询封装 `queries.go`：影片分页检索、磁力按番号、可播资源、resume、统计聚合 | P0 |
-| T-107 | 旧库兼容：`ALTER TABLE ADD COLUMN` 补齐 `created_at`/`updated_at`，缺失表补齐 | P0 |
-| T-108 | 单测：迁移幂等、partial unique index、FK 级联、默认值 | P0 |
+| ID | 状态 | 优先级 | 任务 |
+|---|---|---|---|
+| T-101 | [ ] | 必须 | offline_movies模型与完整度/策略/来源/日期字段，保留旧元数据的迁移映射 |
+| T-102 | [ ] | 必须 | offline_magnets类型化key、属性生成评分、preferred唯一性与人工锁 |
+| T-103 | [ ] | 必须 | 落实目标DDL全部运行表及资产/任务对资源的SET NULL、绑定RESTRICT等约束 |
+| T-104 | [ ] | 必须 | 初始化固定六视图、配置默认值、受限日程；持久server_id及迁移版本 |
+| T-105 | [ ] | 必须 | models/repositories与短事务边界；显式UTC时间和JSON序列化校验 |
+| T-106 | [ ] | 必须 | 参数化分页/排序/搜索/选源/统计/续播查询；可播谓词包含now而非缓存布尔 |
+| T-107 | [ ] | 必须 | 旧库副本备份、受控表重建、逐列搬运、状态转换、版本提交、恢复演练 |
+| T-108 | [ ] | 必须 | 空库/升级库结构等价、主键字段保留、外键、生成评分、活动任务唯一性集成测试 |
+| T-109 | [ ] | 必须 | 共用番号和btih/Base32/ed2k/existing身份解析，执行全部身份fixture与冲突规则 |
+| T-110 | [ ] | 必须 | 质量属性与位权评分纯函数，否定词、唯一变多版本、同分和人工锁样例 |
+| T-111 | [ ] | 必须 | 持久jobs领取/租约/代次/幂等键与重启接管接口，外部提交未知留reconcile |
+| T-112 | [ ] | 必须 | 用户/session仓库、初始管理员创建和首次改密标记；任务与资产删除约束 |
 
-## 交付物
-- 全部 DDL 与迁移脚本通过 `schema_meta` 版本管理
-- 一套类型安全的 model 与 repository 层
-- `offline_full_merged.db` 打开后可自动补齐为完整 9 表结构
+## 验收与交付
 
-## 验收标准
-1. 对全新空库执行迁移 → 9 表 16 索引全部建立；
-2. 对现有 `offline_full_merged.db` 执行迁移 → 仅新增缺失列/表，**原 21 万影片 / 32 万磁力零丢失**；
-3. 插入同番号第二条 `is_preferred=1` 被唯一索引拒绝；
-4. 删除 `offline_movies` 一行，级联清除 `offline_magnets` 与 `user_progress`；
-5. 迁移可重复执行且结果一致。
+1. 以目标DDL的对象名称/约束校验，不以旧16索引数量验收。
+2. 样本库全部主键和保留字段一致，旧无pick_code全部不可播，缺简介旧成功记录按新规则转3。
+3. 重复迁移及中断回滚通过；升级后旧程序不得写入；独立备份可恢复。
+4. 身份fixture通过，评分0～15；同影片最多一个preferred缓存。
+5. 资源级联删除后资产/任务保留远端身份，活动任务幂等索引生效。
 
-## 风险 / 备注
-- **字段顺序**：DDL 中列尾逗号易错，建议用自动化脚本从 PROJECT_SPEC 的 SQL 块导出并在 CI 校验可执行。
-- `category`/`publish_date` 的 NOT NULL 已放宽（`publish_date` 可空），实现时勿回退。
+交付实现、对应契约/故障样例、测试结果及阶段状态。构建和测试要求见总计划；涉及后续阶段的端到端行为由P8统一验收，不以早期接口桩替代正式结果。

@@ -1,0 +1,192 @@
+{
+  "description": "Target contract examples; expected values are requirements, not current service verification.",
+  "normalization": [
+    {
+      "input": "IPX-123",
+      "code": "IPX-123"
+    },
+    {
+      "input": "IPX123",
+      "code": "IPX-123"
+    },
+    {
+      "input": "SSNI-999_CH_HD",
+      "code": "SSNI-999"
+    },
+    {
+      "input": "H264-1080 IPX-123",
+      "code": "IPX-123"
+    },
+    {
+      "input": "FC2PPV1234567",
+      "code": "FC2-PPV-1234567"
+    },
+    {
+      "input": "FC2-PPV-1234567",
+      "code": "FC2-PPV-1234567"
+    },
+    {
+      "input": "259LUXU-1234",
+      "code": "259LUXU-1234"
+    },
+    {
+      "input": "carib-010124-001",
+      "code": "010124-001"
+    },
+    {
+      "input": "MIDV-045 [中文字幕]",
+      "code": "MIDV-045"
+    },
+    {
+      "input": "IPX-123 SSIS-456",
+      "code": "",
+      "reason": "ambiguous"
+    },
+    {
+      "input": "H264-1080",
+      "code": "",
+      "reason": "none"
+    },
+    {
+      "input": "IPX123456789",
+      "code": "",
+      "reason": "unsupported_number_length"
+    },
+    {
+      "input": "IPX-123 IPX123",
+      "code": "IPX-123"
+    }
+  ],
+  "resources": [
+    {
+      "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+      "kind": "btih",
+      "key": "0123456789ABCDEF0123456789ABCDEF01234567"
+    },
+    {
+      "uri": "magnet:?xt=urn:btih:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "kind": "btih",
+      "key": "0000000000000000000000000000000000000000"
+    },
+    {
+      "uri": "ed2k://|file|one.mp4|1000000000|0123456789abcdef0123456789abcdef|/",
+      "kind": "ed2k",
+      "key": "ED2K:0123456789ABCDEF0123456789ABCDEF:1000000000"
+    },
+    {
+      "uri": "ed2k://|file|renamed%20movie.mp4|1000000000|0123456789ABCDEF0123456789ABCDEF|/",
+      "kind": "ed2k",
+      "key": "ED2K:0123456789ABCDEF0123456789ABCDEF:1000000000"
+    },
+    {
+      "uri": "magnet:?xt=urn:btmh:1220abcdef",
+      "kind": "unsupported",
+      "key": null
+    }
+  ],
+  "quality": [
+    {
+      "title": "无字幕 1080P",
+      "flags": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 0
+    },
+    {
+      "title": "中文字幕 4K 有码",
+      "flags": [
+        1,
+        0,
+        1,
+        1
+      ],
+      "score": 11
+    },
+    {
+      "title": "中字 破解 UHD",
+      "flags": [
+        1,
+        1,
+        1,
+        0
+      ],
+      "score": 14
+    },
+    {
+      "title": "有码 720P",
+      "flags": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "score": 1
+    },
+    {
+      "title": "UNCENSORED 1080P",
+      "flags": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 0
+    },
+    {
+      "title": "IPX-123_C 2160P",
+      "flags": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "score": 10
+    },
+    {
+      "title": "NO CHINESE SUB IPX-123_C",
+      "flags": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 0
+    },
+    {
+      "title": "软字幕 4K",
+      "flags": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "score": 2
+    },
+    {
+      "title": "中字软字幕 FHD",
+      "flags": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "score": 8
+    }
+  ],
+  "ordering": {
+    "tier_order": [
+      "permanent_ready",
+      "temporary_ready",
+      "transferable"
+    ],
+    "within_tier": [
+      "priority_score_desc",
+      "size_bytes_desc",
+      "resource_key_asc"
+    ],
+    "only_candidate_extra_score": 0
+  }
+}

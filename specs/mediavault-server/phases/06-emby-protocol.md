@@ -1,45 +1,36 @@
-# P6 · Emby 协议模拟
+# P6 · Emby协议与播放进度
 
-> 上级计划：[`../plan.md`](../plan.md) ｜ 需求：[`../spec.md`](../spec.md) FR-EMBY
-> 对应设计：`PROJECT_SPEC` §9.1–§9.4；接口清单以 `references/emby_protocol_endpoints.md` 为准
+[总计划](../plan.md) · [需求](../spec.md) · [追踪](../traceability.md)
 
-## 目标
-完整模拟 Emby 4.8+ 核心协议，使 Infuse / VidHub / Kodi / Emby Web 可无感接入，并覆盖搜索、图片、播放与进度。
+## 范围与依赖
 
-## 前置依赖
-P5（[`05-playback-115.md`](./05-playback-115.md)）提供播放与进度落库能力。
+前置：P5；G0客户端EC-1/2及媒体字段契约已验证。
+
+对应设计：主设计§9；references/emby_protocol_endpoints.md。对应需求：FR-EMBY-1～7、FR-ADMIN-7。本文件定义待实施任务，不是通过记录。
 
 ## 任务清单
 
-| ID | 任务 | 优先级 |
-|---|---|---|
-| T-601 | Emby 路由骨架 + `GET /emby/system/info/public` 与 `/system/info` | P0 |
-| T-602 | `POST /emby/users/authenticatebyname` → 建 `auth_sessions`，返回 AccessToken（DB 存 SHA-256） | P0 |
-| T-603 | 鉴权中间件：除 public/认证外 `/emby/*` 均需 `X-Emby-Token`/`api_key` | P0 |
-| T-604 | `GET /emby/users/me` 与 `/users/{id}` 返回 User DTO（含 Policy） | P0 |
-| T-605 | `GET /emby/library/mediafolders` → 从 `libraries` 表输出 6 大分类 | P0 |
-| T-606 | `GET /emby/users/{uid}/items`：`ParentId`/`IncludeItemTypes`/`Recursive`/`SortBy`/`StartIndex`/`Limit`/`SearchTerm` | P0 |
-| T-607 | 搜索逻辑：本地命中（code/title/title_zh）；未命中触发在线搜索并降级（空列表非 5xx） | P0 |
-| T-608 | `GET /emby/users/{uid}/items/{id}` 详情：Movie DTO + `MediaSources[]` + `UserData` + `ImageTags` | P0 |
-| T-609 | `GET /emby/items/{id}/images/{Primary\|Backdrop}`：代理磁盘缓存 + ETag + 占位图 | P0 |
-| T-610 | `GET /emby/videos/{id}/stream[.{container}]`：接入 P5 Stream Resolver（含 `MediaSourceId`） | P0 |
-| T-611 | 会话上报：`/sessions/playing`、`/playing/progress`、`/playing/stopped`（Ticks 换算、90% 判完播） | P0 |
-| T-612 | 收藏/已看：`favoriteitems`、`playeditems`；`/items/resume`、`/shows/nextup`、`/items/latest`、`/items/counts` | P1 |
-| T-613 | 兼容性联调：Infuse / VidHub 实际登录、浏览、播放、续播全流程 | P0 |
+| ID | 状态 | 优先级 | 任务 |
+|---|---|---|---|
+| T-601 | [ ] | 必须 | 路由前缀/静态段大小写别名、稳定ServerId/ItemId/SourceId、system握手 |
+| T-602 | [ ] | 必须 | authenticatebyname与audience=emby票据，hash存储与到期撤销 |
+| T-603 | [ ] | 必须 | 所有token格式与冲突处理；用户归属/enabled/到期校验；普通票据不可管理 |
+| T-604 | [ ] | 必须 | users/me、本人User DTO、views、session capabilities与logout |
+| T-605 | [ ] | 必须 | mediafolders映射可重叠六视图，库ID稳定、影片去重 |
+| T-606 | [ ] | 必须 | 列表ParentId/类型/递归/SortBy/SortOrder/分页/搜索、总数与参数上限 |
+| T-607 | [ ] | 必须 | 精确番号调用P4搜索服务，服务未连接时返回本地结果并明确阶段桩；P8接完整实现 |
+| T-608 | [ ] | 必须 | 详情和PlaybackInfo：真实MediaSources/媒体能力、PlaySessionId、时长评分映射 |
+| T-609 | [ ] | 必须 | 图片授权、ETag/标签、代理缓存/预算与失败占位，不代理任意客户端URL |
+| T-610 | [ ] | 必须 | GET/HEAD stream接Resolver，HEAD无新任务副作用；Range/显式版本/URL基址 |
+| T-611 | [ ] | 必须 | playing/progress/stopped幂等、活动会话写权限、lease及未知时长；拒绝关闭会话迟到事件 |
+| T-612 | [ ] | 必须 | 收藏/手动已看/resume/latest/counts；series nextup返回空集合 |
+| T-613 | [ ] | 必须 | Infuse/VidHub固定版本实机：登录/浏览/协商/选版/播放/冷准备/续播 |
 
-## 交付物
-- `internal/emby/`（`router.go`/`handshake.go`/`library.go`/`search.go`/`images.go`/`middleware.go`/`playback.go`/`session.go`）
-- 至少两款真实客户端可完成"登录→浏览→播放→续播"
+## 验收与交付
 
-## 验收标准
-1. Infuse 与 VidHub 能成功登录并展示分类海报墙；
-2. 海报与背景图正常显示（不白屏，源站失效时有占位图）；
-3. 详情页可见多个 `MediaSources` 版本并可切换；
-4. 点击播放能 302 到 115 CDN 并起播；
-5. 播放进度写入 `user_progress`，重新进入可"继续观看"；
-6. 搜索本地未收录番号时联网补全返回结果；网络失败时返回空列表而非报错。
+1. 两客户端正式服务全链路通过；对扩展客户端不凭推断标兼容。
+2. 媒体能力声明为DirectPlay，不宣称转码/重封装；未知字段不虚构。
+3. 准备不更新用户进度，重复stopped不重复计数，用户及设备会话隔离正确。
+4. 本地可先以P4接口桩验收协议结构；P8必须使用真实P4能力完成AC-4/7。
 
-## 风险 / 备注
-- 各客户端对 Emby 字段宽容度不同，需以真实客户端抓包为准微调；
-- 仅支持 DirectPlay/DirectStream，不实现转码，浏览器播放 HEVC 可能失败；
-- `ImageTags` 必须填 hash，否则客户端不请求图片。
+交付实现、对应契约/故障样例、测试结果及阶段状态。构建和测试要求见总计划；涉及后续阶段的端到端行为由P8统一验收，不以早期接口桩替代正式结果。

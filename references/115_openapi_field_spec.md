@@ -1,5 +1,7 @@
 # 115 API 字段参考（Cookie + OpenAPI）
 
+> 本文保存历史实测记录，Cookie、上传、生活事件和签到不是新服务默认范围。新服务的当前能力须按 [外部集成合同](./external_integration_contract.md) 重新验证。包含 client 内部派生字段的样例不是纯原始 HTTP 响应，Go 适配器不得向上游索取包装器才有的字段。
+
 **实测于 2026-05，云下载补测于 2026-08-09**。所有字段名 / 语义来自真实 115 API 响应（用 `config/vault.ini` 的 cookie 和 Redis `mv:auth:<app_id>` 里的 OpenAPI token 跑测试脚本得出）。
 
 写涉及 115 API 字段的代码前**先查此文档不要猜**。新增 / 修改字段引用时实测后更新此文档。
@@ -334,9 +336,6 @@ Cookie 回收站使用网页端协议：
 | 7-10 | `browse_image` / `browse_video` / `browse_audio` / `browse_document` | 浏览 | 忽略 |
 | 14 | `receive_files` | 接收文件（分享转存） | copy |
 
-> 注：数字兜底表（`_ITEM_TYPE_MAP`）已覆盖全部变更类事件，所以**名字写错不会立刻出故障**，
-> 只会静默走兜底——这正是 `create_folder` / `receive_file` 这类拼错能长期潜伏的原因。
-> 排查生活事件问题时不要因为「类型解析看起来正常」就认定映射没问题。
 | 17 | `new_folder` | 新建目录 | mkdir |
 | 18 | `copy_folder` | 复制目录 | copy |
 | 19 | `folder_label` | 目录打标签 | 忽略 |
@@ -344,6 +343,10 @@ Cookie 回收站使用网页端协议：
 | 22 | `delete_file` | 删除 | delete |
 | 23 | `copy_file` | 复制文件 | copy |
 | 24 | `file_rename` | 文件改名 | rename |
+
+> 注：数字兜底表（`_ITEM_TYPE_MAP`）已覆盖全部变更类事件，所以**名字写错不会立刻出故障**，
+> 只会静默走兜底——这正是 `create_folder` / `receive_file` 这类拼错能长期潜伏的原因。
+> 排查生活事件问题时不要因为「类型解析看起来正常」就认定映射没问题。
 
 **坑点（写映射前必看）**：
 
@@ -457,7 +460,7 @@ Cookie 回收站使用网页端协议：
 
 | 接口 | endpoint | 返回 |
 |---|---|---|
-| `delete_files(file_ids)` | POST `/open/ufile/delete` | `bool`（`data is not None`） |
+| `delete_files(file_ids)` | POST `/open/ufile/delete` | 历史包装返回 bool；新服务须验证原始业务状态，区分 accepted 与 confirmed_missing |
 | `move_files(file_ids, to_cid)` | POST `/open/ufile/move` | `bool` |
 | `copy_files(file_ids, pid)` | POST `/open/ufile/copy` | `bool` |
 | `rename_file(file_id, new_name)` | POST `/open/ufile/update` | `bool` |
@@ -534,9 +537,9 @@ Cookie 回收站使用网页端协议：
    - cookie/openapi search → `file_category == '0'`（目录）
    - openapi list_files → 同时检查 `fc == '0' or file_category == '0' or is_dir == '1'`
 
-2. **拿文件父 id**（**必须用 file_name + file_id 调 get_file_parent_id**）：
+2. **拿文件父 id**（区分原始接口与旧包装器）：
    - 两端 client 都实现了 `get_file_parent_id(file_id, file_name)`，内部走 search_file
-   - **不要**直接对文件 id 调 `get_file_info`（cookie 返回根目录假数据）
+   - Cookie 不可直接对文件 id 调 `get_file_info`（可能返回根目录假数据）；OpenAPI 按 Part B 的已验证 paths 推导父 ID，不能将 Cookie 限制扩展到所有接口
    - **不要**用 `_get_skim_nodes_batch`（cookie 该接口无 parent 字段）
    - 用 `_resolve_parent_cid(fc, file_id, file_name)` 自动分发
 
@@ -544,7 +547,7 @@ Cookie 回收站使用网页端协议：
    - cookie list_files → `fid`；search / skim / openapi → `file_id`
    - 跨接口 fallback：`item.get('file_id') or item.get('fid') or item.get('id')`
 
-4. **115 异步删除**：`delete_files` 返回 True ≠ 立即删完。连续 delete 同链路目录时，下一轮列父目录可能仍看到已删项 → 务必加 sleep（建议 1-2s）+ 检查后续 delete 返回值（True 不代表成功，False 一定要 break）。
+4. **115 异步删除**：旧包装器 True 仅能作为已接受线索。新服务保存资产及任务身份，间隔至少 1～2s 对账，只有目标确认不存在才完成；确认超时转 reconcile，不能清空 ID 或扩大删除范围。详见主设计 §8.2。
 
 5. **改字段或新增方法时**：先实测（用 `config/vault.ini` 真实 cookie + Redis `mv:auth:<app_id>` 真实 OpenAPI token 跑测试脚本），把发现的字段补充进本文档。
 

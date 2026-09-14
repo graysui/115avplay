@@ -1,43 +1,36 @@
-# P7 · 管理后台（REST API + Web 控制台）
+# P7 · 管理API与Web控制台
 
-> 上级计划：[`../plan.md`](../plan.md) ｜ 需求：[`../spec.md`](../spec.md) FR-ADMIN
-> 对应设计：`PROJECT_SPEC` §10 / §10.1 / §10.2
+[总计划](../plan.md) · [需求](../spec.md) · [追踪](../traceability.md)
 
-## 目标
-提供管理员可用的 REST API 与 Vue 单页控制台，覆盖统计、配置、番号管理、刮削/榜单/同步触发与实时日志。
+## 范围与依赖
 
-## 前置依赖
-P5（[`05-playback-115.md`](./05-playback-115.md)）与 P4（[`04-scraping.md`](./04-scraping.md)）的任务控制接口。
+前置：P3、P4、P5；认证持久层和基础设施来自P0/P1。
+
+对应设计：主设计§9.3、§10；配置规范。对应需求：FR-ADMIN-1～7、FR-OPS-2/3。本文件定义待实施任务，不是通过记录。
 
 ## 任务清单
 
-| ID | 任务 | 优先级 |
-|---|---|---|
-| T-701 | 管理员登录/登出：`POST /api/admin/login`（argon2id）、`/logout`，复用 `auth_sessions` | P0 |
-| T-702 | `GET /api/stats`：`is_enriched` 0/1/2/3 分布与总量 | P0 |
-| T-703 | `GET/PUT /api/config`：读写 `system_settings`，secret 字段脱敏 | P0 |
-| T-704 | `GET /api/movies`（分页/过滤）、`GET/PUT/DELETE /api/movies/{code}` | P0 |
-| T-705 | `POST /api/scraper/run`（日期范围/含失败/并发/延时/代理）+ `GET /api/scraper/status` | P0 |
-| T-706 | `POST /api/rankings/run`（board/year）、`POST /api/sync30d/run` | P0 |
-| T-707 | `GET /api/tasks/{id}`：异步任务注册与查询（`job_registry.go`） | P1 |
-| T-708 | `GET /api/logs/stream`：WebSocket 实时日志推送（订阅 log_hub） | P0 |
-| T-709 | 前端工程：Vue 3 + Vite + TailwindCSS + Pinia 脚手架与构建 | P1 |
-| T-710 | 页面：Dashboard / Movies / Scraper / Rankings / Settings / Logs | P1 |
-| T-711 | `go:embed` 打包 `web/dist` 为单二进制静态资源 | P0 |
+| ID | 状态 | 优先级 | 任务 |
+|---|---|---|---|
+| T-701 | [ ] | 必须 | 管理员Cookie登录/登出/首次改密，audience、CSRF、同源校验与普通用户阻断 |
+| T-702 | [ ] | 必须 | 统计完整度和策略两套互斥分布，pending只计可调度记录 |
+| T-703 | [ ] | 必须 | 配置GET/PUT、环境只读覆盖、revision；secret keep/replace/clear与参数快照 |
+| T-704 | [ ] | 必须 | 影片/版本修正与人工锁、软删除任务、预准备、固定视图管理 |
+| T-705 | [ ] | 必须 | 刮削日期字段/范围、包含失败/免刮削、状态与持久进度 |
+| T-706 | [ ] | 必须 | 榜单/30D/全量触发，日程CRUD/时区/missed slot规则，复用活动任务 |
+| T-707 | [ ] | 必须 | tasks查询含conflicts和reconcile；alerts/status横幅、恢复、授权/重新授权任务 |
+| T-708 | [ ] | 必须 | WS日志鉴权/同源/脱敏/断连重连；只通知job_id，状态从DB查询 |
+| T-709 | [ ] | 必须 | Vue3/Vite/Tailwind/Pinia工程与可用表单、错误/准备状态呈现 |
+| T-710 | [ ] | 必须 | 完整页面：Dashboard、Movies/Versions、Scraper、Rankings/Schedules、Libraries、Users、Settings/115、Logs |
+| T-711 | [ ] | 必须 | go:embed前端构建产物；静态路由与API不互相遮蔽 |
+| T-712 | [ ] | 必须 | 普通用户创建/停用/重置、会话撤销；保护唯一管理员 |
+| T-713 | [ ] | 必须 | 配置保存不破坏secret、用户越权/CSRF/WS测试；长任务在重启后仍可查询 |
 
-## 交付物
-- 完整管理端 REST API（见 PROJECT_SPEC §10.1 的 17 个端点）
-- 可登录、可操作、可看日志的 Web 控制台，随二进制一起分发
+## 验收与交付
 
-## 验收标准
-1. 未登录访问管理 API 被拒绝；
-2. 仪表盘统计数字与数据库实际分布一致；
-3. 指定日期范围点击"全量刮削"能启动任务并在页面看到进度；
-4. 周榜/月榜/TOP250 按钮可触发抓取；
-5. 实时日志面板可滚动看到服务端日志；
-6. 修改配置（TTL/并发/代理）后立即生效并持久化；
-7. 前端静态资源已嵌入二进制，无需单独部署。
+1. 所有主设计管理端点有页面或明确运维调用方式，长任务202并可查DB状态。
+2. secret不作为脱敏占位值回写；环境覆盖项拒绝修改；新任务才用新配置。
+3. 授权/用户/固定视图/日程/预准备实际可操作，冷准备提示符合首版行为。
+4. 普通Emby用户不能管理；日志WS不泄露票据；静态文件嵌入二进制。
 
-## 风险 / 备注
-- secret 配置（115 Cookie/Token）必须脱敏返回，且加密存储；
-- 长任务（刮削/同步）必须异步化 + 进度查询，禁止同步阻塞 HTTP 请求。
+交付实现、对应契约/故障样例、测试结果及阶段状态。构建和测试要求见总计划；涉及后续阶段的端到端行为由P8统一验收，不以早期接口桩替代正式结果。
