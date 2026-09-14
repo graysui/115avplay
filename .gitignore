@@ -8,5 +8,10 @@ __pycache__/
 .env.*
 !.env.example
 /bin/
+*.exe
+*.lock
+*.key
+bootstrap-password
 /web/node_modules/
-/web/dist/
+/web/dist/*
+!/web/dist/index.html

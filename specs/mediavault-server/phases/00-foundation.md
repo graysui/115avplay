@@ -12,15 +12,15 @@
 
 | ID | 状态 | 优先级 | 任务 |
 |---|---|---|---|
-| T-001 | [ ] | 必须 | 初始化Go module与受支持工具链，固定Gin、modernc SQLite、WS依赖版本及Linux目标 |
-| T-002 | [ ] | 必须 | 建立cmd/server、internal/api/emby/client115/javdb/ingestion/db/models/services/identity与web目录 |
-| T-003 | [ ] | 必须 | 配置与密钥启动顺序：环境/默认→密钥→迁移→设置表；实现secret envelope和配置来源校验 |
-| T-004 | [ ] | 必须 | log/slog、2000条ring buffer、敏感值过滤、文件日志轮转接口 |
-| T-005 | [ ] | 必须 | 单写/多读SQLite连接，每连接外键与busy_timeout，WAL/JSON/部分索引能力探测 |
-| T-006 | [ ] | 必须 | 迁移版本/校验和/独占锁框架；失败不更新版本，未知更高版本拒绝写入 |
-| T-007 | [ ] | 必须 | HTTP优雅关闭、healthz及本地readyz骨架；任务停止领取、在途状态安全落库 |
-| T-008 | [ ] | 必须 | 构建/运行/测试/vet脚本与.gitignore；前端未构建时开发桩边界明确 |
-| T-009 | [ ] | 必须 | 管理API统一错误和request_id、超时/并发/有界队列接口；外部调用不进入DB写事务 |
+| T-001 | [x] | 必须 | 初始化Go module与受支持工具链，固定Gin、modernc SQLite、WS依赖版本及Linux目标 |
+| T-002 | [x] | 必须 | 建立cmd/server、internal/api/emby/client115/javdb/ingestion/db/models/services/identity与web目录 |
+| T-003 | [x] | 必须 | 配置与密钥启动顺序：环境/默认→密钥→迁移→设置表；实现secret envelope和配置来源校验 |
+| T-004 | [x] | 必须 | log/slog、2000条ring buffer、敏感值过滤、文件日志轮转接口 |
+| T-005 | [x] | 必须 | 单写/多读SQLite连接，每连接外键与busy_timeout，WAL/JSON/部分索引能力探测 |
+| T-006 | [x] | 必须 | 迁移版本/校验和/独占锁框架；失败不更新版本，未知更高版本拒绝写入 |
+| T-007 | [x] | 必须 | HTTP优雅关闭、healthz及本地readyz骨架；任务停止领取、在途状态安全落库 |
+| T-008 | [x] | 必须 | 构建/运行/测试/vet脚本与.gitignore；前端未构建时开发桩边界明确 |
+| T-009 | [x] | 必须 | 管理API统一错误和request_id、超时/并发/有界队列接口；外部调用不进入DB写事务 |
 
 ## 验收与交付
 
