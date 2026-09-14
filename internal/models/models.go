@@ -267,7 +267,17 @@ type ScanSeen struct {
 	ResourceKey *string `json:"resource_key,omitempty"`
 }
 
+// SystemSetting represents an entry in system_settings table.
+type SystemSetting struct {
+	Key       string  `json:"key"`
+	Value     *string `json:"value,omitempty"`
+	IsSecret  int     `json:"is_secret"`
+	Revision  int     `json:"revision"`
+	UpdatedAt string  `json:"updated_at"`
+}
+
 // UTCNow returns the current UTC timestamp formatted in RFC3339 (seconds precision).
 func UTCNow() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
+

@@ -240,3 +240,86 @@ func (r *UserRepo) RevokeAllUserSessions(ctx context.Context, userID string) err
 		return err
 	})
 }
+
+// ListUsers returns all users.
+func (r *UserRepo) ListUsers(ctx context.Context) ([]models.User, error) {
+	var users []models.User
+	err := r.db.ExecRead(ctx, func(database *sql.DB) error {
+		rows, err := database.QueryContext(ctx, `
+			SELECT id, username, password_hash, is_admin, enabled, must_change_password, created_at, updated_at
+			FROM users ORDER BY created_at ASC
+		`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var u models.User
+			if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.IsAdmin, &u.Enabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt); err != nil {
+				return err
+			}
+			users = append(users, u)
+		}
+		return rows.Err()
+	})
+	return users, err
+}
+
+// CreateUser creates a new user.
+func (r *UserRepo) CreateUser(ctx context.Context, u *models.User) error {
+	now := models.UTCNow()
+	if u.CreatedAt == "" {
+		u.CreatedAt = now
+	}
+	u.UpdatedAt = now
+	return r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO users (id, username, password_hash, is_admin, enabled, must_change_password, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, u.ID, u.Username, u.PasswordHash, u.IsAdmin, u.Enabled, u.MustChangePassword, u.CreatedAt, u.UpdatedAt)
+		return err
+	})
+}
+
+// UpdateUser updates user's enabled status, admin role, or password.
+func (r *UserRepo) UpdateUser(ctx context.Context, u *models.User) error {
+	now := models.UTCNow()
+	u.UpdatedAt = now
+	return r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE users
+			SET is_admin = ?, enabled = ?, must_change_password = ?, updated_at = ?
+			WHERE id = ?
+		`, u.IsAdmin, u.Enabled, u.MustChangePassword, u.UpdatedAt, u.ID)
+		return err
+	})
+}
+
+// DeleteUser deletes a user and associated sessions and progress.
+func (r *UserRepo) DeleteUser(ctx context.Context, userID string) error {
+	return r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE user_id = ?`, userID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM play_sessions WHERE user_id = ?`, userID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM user_progress WHERE user_id = ?`, userID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
+		return err
+	})
+}
+
+// CountEnabledAdmins returns the number of active administrator accounts.
+func (r *UserRepo) CountEnabledAdmins(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.ExecRead(ctx, func(database *sql.DB) error {
+		row := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE is_admin = 1 AND enabled = 1`)
+		return row.Scan(&count)
+	})
+	return count, err
+}
+

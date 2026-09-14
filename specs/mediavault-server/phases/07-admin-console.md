@@ -12,19 +12,19 @@
 
 | ID | 状态 | 优先级 | 任务 |
 |---|---|---|---|
-| T-701 | [ ] | 必须 | 管理员Cookie登录/登出/首次改密，audience、CSRF、同源校验与普通用户阻断 |
-| T-702 | [ ] | 必须 | 统计完整度和策略两套互斥分布，pending只计可调度记录 |
-| T-703 | [ ] | 必须 | 配置GET/PUT、环境只读覆盖、revision；secret keep/replace/clear与参数快照 |
-| T-704 | [ ] | 必须 | 影片/版本修正与人工锁、软删除任务、预准备、固定视图管理 |
-| T-705 | [ ] | 必须 | 刮削日期字段/范围、包含失败/免刮削、状态与持久进度 |
-| T-706 | [ ] | 必须 | 榜单/30D/全量触发，日程CRUD/时区/missed slot规则，复用活动任务 |
-| T-707 | [ ] | 必须 | tasks查询含conflicts和reconcile；alerts/status横幅、恢复、授权/重新授权任务 |
-| T-708 | [ ] | 必须 | WS日志鉴权/同源/脱敏/断连重连；只通知job_id，状态从DB查询 |
-| T-709 | [ ] | 必须 | Vue3/Vite/Tailwind/Pinia工程与可用表单、错误/准备状态呈现 |
-| T-710 | [ ] | 必须 | 完整页面：Dashboard、Movies/Versions、Scraper、Rankings/Schedules、Libraries、Users、Settings/115、Logs |
-| T-711 | [ ] | 必须 | go:embed前端构建产物；静态路由与API不互相遮蔽 |
-| T-712 | [ ] | 必须 | 普通用户创建/停用/重置、会话撤销；保护唯一管理员 |
-| T-713 | [ ] | 必须 | 配置保存不破坏secret、用户越权/CSRF/WS测试；长任务在重启后仍可查询 |
+| T-701 | [x] | 必须 | 管理员Cookie登录/登出/首次改密，audience、CSRF、同源校验与普通用户阻断 |
+| T-702 | [x] | 必须 | 统计完整度和策略两套互斥分布，pending只计可调度记录 |
+| T-703 | [x] | 必须 | 配置GET/PUT、环境只读覆盖、revision；secret keep/replace/clear与参数快照 |
+| T-704 | [x] | 必须 | 影片/版本修正与人工锁、软删除任务、预准备、固定视图管理 |
+| T-705 | [x] | 必须 | 刮削日期字段/范围、包含失败/免刮削、状态与持久进度 |
+| T-706 | [x] | 必须 | 榜单/30D/全量触发，日程CRUD/时区/missed slot规则，复用活动任务 |
+| T-707 | [x] | 必须 | tasks查询含conflicts和reconcile；alerts/status横幅、恢复、授权/重新授权任务 |
+| T-708 | [x] | 必须 | WS日志鉴权/同源/脱敏/断连重连；只通知job_id，状态从DB查询 |
+| T-709 | [x] | 必须 | Vue3/Vite/Tailwind/Pinia工程与可用表单、错误/准备状态呈现 |
+| T-710 | [x] | 必须 | 完整页面：Dashboard、Movies/Versions、Scraper、Rankings/Schedules、Libraries、Users、Settings/115、Logs |
+| T-711 | [x] | 必须 | go:embed前端构建产物；静态路由与API不互相遮蔽 |
+| T-712 | [x] | 必须 | 普通用户创建/停用/重置、会话撤销；保护唯一管理员 |
+| T-713 | [x] | 必须 | 配置保存不破坏secret、用户越权/CSRF/WS测试；长任务在重启后仍可查询 |
 
 ## 验收与交付
 

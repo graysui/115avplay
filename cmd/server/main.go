@@ -11,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"mediavault/internal/api/admin"
 	"mediavault/internal/api/middleware"
 	"mediavault/internal/config"
 	"mediavault/internal/db"
+	"mediavault/internal/emby"
 	"mediavault/internal/logger"
 	"mediavault/internal/services"
 	"mediavault/web"
@@ -107,17 +109,36 @@ func run() error {
 		)
 	}
 
-	// 8. Bootstrap admin password check
+	// 8. Bootstrap repositories
+	userRepo := db.NewUserRepo(database)
+	settingsRepo := db.NewSettingsRepo(database)
+	movieRepo := db.NewMovieRepo(database)
+	magnetRepo := db.NewMagnetRepo(database)
+	assetRepo := db.NewAssetRepo(database)
+	libraryRepo := db.NewLibraryRepo(database)
+	jobRepo := db.NewJobRepo(database)
+	progressRepo := db.NewProgressRepo(database)
+
+	// 9. Bootstrap admin password check & create default admin
 	adminPwd, isNewBootstrap, err := cfg.GetOrGenerateAdminBootstrapPassword()
 	if err != nil {
 		return fmt.Errorf("admin password check: %w", err)
 	}
+	_, err = userRepo.EnsureAdminUser(context.Background(), "admin", adminPwd, isNewBootstrap)
+	if err != nil {
+		return fmt.Errorf("ensure admin user: %w", err)
+	}
 	if isNewBootstrap {
 		appLogger.Warn("Bootstrap admin password generated. Please check data/bootstrap-password and change password upon first login.")
-		_ = adminPwd // Used during admin creation in P1
 	}
 
-	// 9. Initialize Lifecycle Manager
+	// 10. Initialize Core Domain Services
+	transferManager := services.NewTransferManager(database, assetRepo, magnetRepo, jobRepo, nil, "", 7, appLogger)
+	janitor := services.NewJanitorService(database, assetRepo, nil, "", appLogger)
+	_ = janitor
+	resolver := services.NewResolver(database, assetRepo, magnetRepo, transferManager, nil, 8000, 120, appLogger)
+
+	// 11. Initialize Lifecycle Manager
 	lifecycle := services.NewLifecycleManager(database)
 	if schemaMeta != nil {
 		lifecycle.SetReady(true, serverID, "")
@@ -125,7 +146,7 @@ func run() error {
 		lifecycle.SetReady(false, "", "database schema requires migration")
 	}
 
-	// 10. Build HTTP server with Gin
+	// 12. Build HTTP server with Gin
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.Use(gin.Recovery())
@@ -136,7 +157,28 @@ func run() error {
 	engine.GET("/healthz", lifecycle.HandleHealthz)
 	engine.GET("/readyz", lifecycle.HandleReadyz)
 
-	// Web frontend static files
+	// 13. Mount Admin APIs under /api/v1
+	apiV1 := engine.Group("/api/v1")
+	admin.RegisterAdminRoutes(apiV1, userRepo, settingsRepo, movieRepo, magnetRepo, assetRepo, libraryRepo, jobRepo, database, cfg, transferManager, nil)
+
+	// 14. Mount Emby Server handler
+	cacheDir := filepath.Join(cfg.DataDir, "cache", "images")
+	embyServer, err := emby.NewServer(database, movieRepo, magnetRepo, assetRepo, userRepo, progressRepo, libraryRepo, resolver, cacheDir, cfg.PublicURL, appLogger)
+	if err != nil {
+		return fmt.Errorf("init emby server: %w", err)
+	}
+	embyHandler := gin.WrapH(embyServer)
+	engine.Any("/emby/*path", embyHandler)
+	engine.Any("/emby", embyHandler)
+	// Direct public endpoints accessed by Emby clients without prefix
+	engine.Any("/System/Info/Public", embyHandler)
+	engine.Any("/system/info/public", embyHandler)
+	engine.Any("/System/Endpoint", embyHandler)
+	engine.Any("/system/endpoint", embyHandler)
+	engine.Any("/Users/AuthenticateByName", embyHandler)
+	engine.Any("/users/authenticatebyname", embyHandler)
+
+	// 15. Web frontend static files & SPA fallback
 	if err := web.RegisterWebRoutes(engine); err != nil {
 		return fmt.Errorf("register web routes: %w", err)
 	}
@@ -158,7 +200,7 @@ func run() error {
 		}
 	}()
 
-	// 11. Handle OS signals for graceful shutdown
+	// 16. Handle OS signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
@@ -169,7 +211,7 @@ func run() error {
 		appLogger.Info("Shutdown signal received, shutting down gracefully", "signal", sig.String())
 	}
 
-	// 12. Graceful shutdown
+	// 17. Graceful shutdown
 	if err := lifecycle.Shutdown(httpSrv, 10*time.Second); err != nil {
 		appLogger.Error("Error during graceful shutdown", "error", err)
 	} else {

@@ -229,6 +229,38 @@ func (r *AssetRepo) GetReadyAssetByResource(ctx context.Context, resourceKey, bi
 	return asset, nil
 }
 
+// ListAssetsForMovie returns all assets associated with the movie's magnets.
+func (r *AssetRepo) ListAssetsForMovie(ctx context.Context, movieCode string) ([]models.CloudAsset, error) {
+	query := `
+		SELECT a.id, a.binding_id, a.resource_key, a.owning_job_id, a.source_type, a.state, a.generation,
+		       a.file_id, a.pick_code, a.file_name, a.size_bytes, a.container, a.runtime_ticks,
+		       a.media_streams, a.parent_id, a.owned_root_id, a.root_snapshot, a.manifest_json,
+		       a.ready_at, a.expires_at, a.deleted_at, a.last_seen_at, a.last_error, a.created_at, a.updated_at
+		FROM cloud_assets a
+		JOIN offline_magnets m ON m.info_hash = a.resource_key
+		WHERE m.movie_code = ?
+		ORDER BY a.created_at DESC;
+	`
+	var list []models.CloudAsset
+	err := r.db.ExecRead(ctx, func(database *sql.DB) error {
+		rows, err := database.QueryContext(ctx, query, movieCode)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			asset, err := scanAsset(rows)
+			if err != nil {
+				return err
+			}
+			list = append(list, *asset)
+		}
+		return nil
+	})
+	return list, err
+}
+
 // UpdateAssetState updates state and generation for an asset.
 func (r *AssetRepo) UpdateAssetState(ctx context.Context, id, state string, lastError *string) error {
 	now := models.UTCNow()

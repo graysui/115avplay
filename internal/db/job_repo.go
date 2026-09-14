@@ -316,3 +316,110 @@ func (r *JobRepo) GetJobByID(ctx context.Context, id string) (*models.Job, error
 	}
 	return &j, nil
 }
+
+// ListJobsParams contains parameters for jobs listing.
+type ListJobsParams struct {
+	Kind   string
+	State  string
+	Limit  int
+	Offset int
+}
+
+// ListJobs lists jobs with pagination and filters.
+func (r *JobRepo) ListJobs(ctx context.Context, p ListJobsParams) ([]models.Job, int, error) {
+	whereClauses := []string{"1=1"}
+	var args []interface{}
+
+	if p.Kind != "" {
+		whereClauses = append(whereClauses, "kind = ?")
+		args = append(args, p.Kind)
+	}
+	if p.State != "" {
+		whereClauses = append(whereClauses, "state = ?")
+		args = append(args, p.State)
+	}
+
+	whereSQL := fmt.Sprintf("WHERE %s", whereClauses[0])
+	for i := 1; i < len(whereClauses); i++ {
+		whereSQL += fmt.Sprintf(" AND %s", whereClauses[i])
+	}
+
+	var total int
+	err := r.db.ExecRead(ctx, func(database *sql.DB) error {
+		countSQL := fmt.Sprintf("SELECT COUNT(*) FROM jobs %s", whereSQL)
+		return database.QueryRowContext(ctx, countSQL, args...).Scan(&total)
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if p.Limit <= 0 {
+		p.Limit = 20
+	}
+
+	querySQL := fmt.Sprintf(`
+		SELECT id, kind, dedupe_key, resource_key, binding_id, state, generation,
+		       lease_owner, lease_until, attempts, next_run_at, deadline_at,
+		       remote_id, owned_root_id, params_json, result_json, last_error,
+		       started_at, completed_at, created_at, updated_at
+		FROM jobs %s
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`, whereSQL)
+
+	queryArgs := append(args, p.Limit, p.Offset)
+
+	var list []models.Job
+	err = r.db.ExecRead(ctx, func(database *sql.DB) error {
+		rows, err := database.QueryContext(ctx, querySQL, queryArgs...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var j models.Job
+			if err := rows.Scan(
+				&j.ID, &j.Kind, &j.DedupeKey, &j.ResourceKey, &j.BindingID, &j.State, &j.Generation,
+				&j.LeaseOwner, &j.LeaseUntil, &j.Attempts, &j.NextRunAt, &j.DeadlineAt,
+				&j.RemoteID, &j.OwnedRootID, &j.ParamsJSON, &j.ResultJSON, &j.LastError,
+				&j.StartedAt, &j.CompletedAt, &j.CreatedAt, &j.UpdatedAt,
+			); err != nil {
+				return err
+			}
+			list = append(list, j)
+		}
+		return rows.Err()
+	})
+
+	return list, total, err
+}
+
+// RetryJob resets a failed or cancelled job to queued state.
+func (r *JobRepo) RetryJob(ctx context.Context, jobID string) error {
+	now := models.UTCNow()
+	return r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE jobs
+			SET state = 'queued', last_error = NULL, lease_owner = NULL, lease_until = NULL,
+			    attempts = 0, next_run_at = NULL, updated_at = ?
+			WHERE id = ? AND state IN ('failed', 'cancelled', 'retry_wait', 'reconcile')
+		`, now, jobID)
+		return err
+	})
+}
+
+// CancelJob marks an active or queued job as cancelled.
+func (r *JobRepo) CancelJob(ctx context.Context, jobID string) error {
+	now := models.UTCNow()
+	errMsg := "cancelled by admin"
+	return r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE jobs
+			SET state = 'failed', last_error = ?, completed_at = ?, lease_owner = NULL, lease_until = NULL, updated_at = ?
+			WHERE id = ? AND state IN ('queued', 'running', 'retry_wait', 'reconcile')
+		`, errMsg, now, now, jobID)
+		return err
+	})
+}
+

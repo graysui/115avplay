@@ -149,7 +149,7 @@ func cleanAttrValue(v interface{}) interface{} {
 
 // Global logger references
 var (
-	GlobalRingBuffer *RingBuffer
+	GlobalRingBuffer = NewRingBuffer(2000)
 	GlobalLogger     *slog.Logger
 )
 

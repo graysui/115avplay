@@ -1,23 +1,989 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MediaVault 控制台 (开发桩)</title>
+  <title>MediaVault 控制台</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+              900: '#0c4a6e'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .card { background: #1e293b; padding: 2.5rem; border-radius: 0.75rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 500px; text-align: center; border: 1px solid #334155; }
-    h1 { margin-top: 0; color: #38bdf8; font-size: 1.5rem; }
-    p { color: #94a3b8; line-height: 1.6; }
-    .badge { display: inline-block; background: #0369a1; color: #e0f2fe; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.85rem; margin-bottom: 1rem; }
+    [v-cloak] { display: none; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
   </style>
 </head>
-<body>
-  <div class="card">
-    <div class="badge">开发桩 · Dev Stub</div>
-    <h1>MediaVault Web 控制台</h1>
-    <p>Go 后端服务运行正常。前端 Vue 3 工程位于 <code>web/src</code>，正在开发/编译阶段。</p>
-    <p>运行 <code>npm run build</code> 后将自动由 Go 二进制单文件内嵌托管。</p>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-brand-500 selection:text-white">
+  <div id="app" v-cloak class="flex-1 flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-900 border-b border-slate-800 h-14 flex items-center justify-between px-4 sticky top-0 z-30">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center font-bold text-white shadow">
+          MV
+        </div>
+        <span class="font-bold text-lg tracking-wide text-white">MediaVault <span class="text-xs px-2 py-0.5 ml-1 bg-brand-900/60 text-brand-400 border border-brand-700/50 rounded-full font-mono">v1.0</span></span>
+      </div>
+
+      <div class="flex items-center space-x-3" v-if="auth.isLoggedIn">
+        <span class="text-xs text-slate-400">已登录: <strong class="text-slate-200">{{ auth.user?.username }}</strong></span>
+        <button @click="showChangePassword = true" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition border border-slate-700">修改密码</button>
+        <button @click="logout" class="px-2.5 py-1 text-xs bg-rose-900/40 hover:bg-rose-900/70 text-rose-300 rounded transition border border-rose-800/50">登出</button>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Sidebar Navigation -->
+      <aside v-if="auth.isLoggedIn" class="w-56 bg-slate-900 border-r border-slate-800 flex flex-col p-3 space-y-1">
+        <button v-for="item in navItems" :key="item.id" @click="currentTab = item.id"
+                :class="[currentTab === item.id ? 'bg-brand-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60', 'flex items-center space-x-2.5 px-3 py-2 rounded-lg text-sm transition text-left w-full']">
+          <span class="text-base">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </button>
+        <div class="flex-1"></div>
+        <div class="pt-3 border-t border-slate-800 text-[11px] text-slate-500 text-center">
+          MediaVault Go Server &copy; 2026
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="flex-1 overflow-y-auto p-6 bg-slate-950">
+        <!-- Notification Banner -->
+        <div v-if="banner.show" :class="[banner.type === 'error' ? 'bg-rose-950/80 border-rose-800 text-rose-200' : 'bg-emerald-950/80 border-emerald-800 text-emerald-200', 'mb-6 px-4 py-3 rounded-lg border flex items-center justify-between text-sm shadow animate-fade-in']">
+          <span>{{ banner.message }}</span>
+          <button @click="banner.show = false" class="text-slate-400 hover:text-white">&times;</button>
+        </div>
+
+        <!-- 1. LOGIN VIEW -->
+        <div v-if="!auth.isLoggedIn" class="max-w-md mx-auto mt-20 bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl">
+          <div class="text-center mb-6">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center font-bold text-white text-xl mx-auto mb-3 shadow">MV</div>
+            <h2 class="text-xl font-bold text-white">管理员登录</h2>
+            <p class="text-xs text-slate-400 mt-1">请输入管理员凭据访问控制台</p>
+          </div>
+          <form @submit.prevent="login" class="space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">用户名</label>
+              <input v-model="loginForm.username" type="text" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-brand-500">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">密码</label>
+              <input v-model="loginForm.password" type="password" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-brand-500">
+            </div>
+            <button type="submit" :disabled="loading" class="w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded-lg text-sm transition shadow flex items-center justify-center space-x-2">
+              <span v-if="loading">登录中...</span>
+              <span v-else>立即登录</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- 2. DASHBOARD VIEW -->
+        <div v-else-if="currentTab === 'dashboard'" class="space-y-6">
+          <div class="flex items-center justify-between">
+            <h1 class="text-2xl font-bold text-white">系统仪表盘</h1>
+            <button @click="fetchStats" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg border border-slate-700 text-slate-300 transition">刷新统计</button>
+          </div>
+
+          <!-- Top Stats Cards -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow">
+              <div class="text-xs text-slate-400 font-medium">电影总库收录</div>
+              <div class="text-2xl font-bold text-white mt-2">{{ stats.media?.total_movies || 0 }} <span class="text-xs font-normal text-slate-400">部</span></div>
+              <div class="text-[11px] text-slate-500 mt-1">离线元数据总条目</div>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow">
+              <div class="text-xs text-slate-400 font-medium">可用磁力资源</div>
+              <div class="text-2xl font-bold text-sky-400 mt-2">{{ stats.media?.total_magnets || 0 }} <span class="text-xs font-normal text-slate-400">个</span></div>
+              <div class="text-[11px] text-slate-400 mt-1">含中文: {{ stats.media?.chinese_sub_magnets || 0 }} | 4K: {{ stats.media?.four_k_magnets || 0 }}</div>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow">
+              <div class="text-xs text-slate-400 font-medium">云端就绪资产</div>
+              <div class="text-2xl font-bold text-emerald-400 mt-2">{{ stats.media?.permanent_assets + stats.media?.temporary_assets || 0 }} <span class="text-xs font-normal text-slate-400">个</span></div>
+              <div class="text-[11px] text-slate-400 mt-1">永久: {{ stats.media?.permanent_assets || 0 }} | 临时缓存: {{ stats.media?.temporary_assets || 0 }}</div>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow">
+              <div class="text-xs text-slate-400 font-medium">调度任务队列</div>
+              <div class="text-2xl font-bold text-amber-400 mt-2">{{ stats.jobs?.running || 0 }} <span class="text-xs font-normal text-slate-400">运行中</span></div>
+              <div class="text-[11px] text-slate-400 mt-1">排队中: {{ stats.jobs?.pending || 0 }} | 失败: {{ stats.jobs?.failed || 0 }}</div>
+            </div>
+          </div>
+
+          <!-- Distribution Breakdown Cards -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- Completeness -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow">
+              <h3 class="text-sm font-semibold text-slate-200 mb-4 flex items-center justify-between">
+                <span>元数据完整度分布</span>
+                <span class="text-xs text-slate-400 font-normal">互斥分类</span>
+              </h3>
+              <div class="space-y-3">
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-emerald-400">完整 (Complete)</span>
+                    <span class="font-medium text-slate-300">{{ stats.completeness?.complete || 0 }}</span>
+                  </div>
+                  <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-emerald-500" :style="{ width: percent(stats.completeness?.complete, stats.media?.total_movies) + '%' }"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-amber-400">部分 (Partial)</span>
+                    <span class="font-medium text-slate-300">{{ stats.completeness?.partial || 0 }}</span>
+                  </div>
+                  <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-amber-500" :style="{ width: percent(stats.completeness?.partial, stats.media?.total_movies) + '%' }"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-slate-400">原始待刮削 (Raw)</span>
+                    <span class="font-medium text-slate-300">{{ stats.completeness?.raw || 0 }}</span>
+                  </div>
+                  <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-slate-600" :style="{ width: percent(stats.completeness?.raw, stats.media?.total_movies) + '%' }"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Scrape Policy -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow">
+              <h3 class="text-sm font-semibold text-slate-200 mb-4 flex items-center justify-between">
+                <span>刮削策略分布</span>
+                <span class="text-xs text-slate-400 font-normal">互斥分类</span>
+              </h3>
+              <div class="space-y-3">
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-brand-400">自动刮削 (Auto)</span>
+                    <span class="font-medium text-slate-300">{{ stats.policy?.auto || 0 }}</span>
+                  </div>
+                  <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-brand-500" :style="{ width: percent(stats.policy?.auto, stats.media?.total_movies) + '%' }"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-indigo-400">免刮削 (Exempt)</span>
+                    <span class="font-medium text-slate-300">{{ stats.policy?.exempt || 0 }}</span>
+                  </div>
+                  <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-indigo-500" :style="{ width: percent(stats.policy?.exempt, stats.media?.total_movies) + '%' }"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="flex justify-between text-xs mb-1">
+                    <span class="text-rose-400">暂停 (Paused)</span>
+                    <span class="font-medium text-slate-300">{{ stats.policy?.paused || 0 }}</span>
+                  </div>
+                  <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-rose-500" :style="{ width: percent(stats.policy?.paused, stats.media?.total_movies) + '%' }"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Scrape Status -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow">
+              <h3 class="text-sm font-semibold text-slate-200 mb-4 flex items-center justify-between">
+                <span>刮削结果状态</span>
+                <span class="text-xs text-slate-400 font-normal">运行状态</span>
+              </h3>
+              <div class="space-y-2 text-xs">
+                <div class="flex justify-between py-1 border-b border-slate-800">
+                  <span class="text-slate-400">就绪等待 (Idle):</span>
+                  <span class="font-mono text-slate-200">{{ stats.scrape_status?.idle || 0 }}</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-slate-800">
+                  <span class="text-emerald-400">刮削成功 (Success):</span>
+                  <span class="font-mono text-emerald-300">{{ stats.scrape_status?.success || 0 }}</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-slate-800">
+                  <span class="text-amber-400">部分匹配 (Partial):</span>
+                  <span class="font-mono text-amber-300">{{ stats.scrape_status?.partial || 0 }}</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-slate-800">
+                  <span class="text-rose-400">未找到条目 (NotFound):</span>
+                  <span class="font-mono text-rose-300">{{ stats.scrape_status?.not_found || 0 }}</span>
+                </div>
+                <div class="flex justify-between py-1">
+                  <span class="text-purple-400">临时错误 (Transient):</span>
+                  <span class="font-mono text-purple-300">{{ stats.scrape_status?.transient || 0 }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. MOVIES & VERSIONS VIEW -->
+        <div v-else-if="currentTab === 'movies'" class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h1 class="text-2xl font-bold text-white">影片与版本管理</h1>
+            <div class="flex items-center space-x-2">
+              <input v-model="moviesQuery.q" @keyup.enter="fetchMovies" placeholder="按番号或标题搜索..." class="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 w-56 focus:outline-none focus:border-brand-500">
+              <select v-model="moviesQuery.category" @change="fetchMovies" class="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200">
+                <option value="">全部类别</option>
+                <option value="censored">亚洲有码</option>
+                <option value="uncensored">亚洲无码</option>
+                <option value="fc2">FC2/素人</option>
+                <option value="domestic">国产</option>
+              </select>
+              <button @click="fetchMovies" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-xs rounded-lg transition font-medium">搜索</button>
+            </div>
+          </div>
+
+          <!-- Movies Table -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow">
+            <table class="w-full text-left text-xs text-slate-300">
+              <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase font-medium">
+                <tr>
+                  <th class="py-3 px-4 w-20">封面</th>
+                  <th class="py-3 px-4 w-32">番号</th>
+                  <th class="py-3 px-4">标题 / 译名</th>
+                  <th class="py-3 px-4 w-24">分类</th>
+                  <th class="py-3 px-4 w-24">发行日期</th>
+                  <th class="py-3 px-4 w-24">刮削状态</th>
+                  <th class="py-3 px-4 w-36 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                <tr v-for="m in moviesList" :key="m.code" class="hover:bg-slate-800/40 transition">
+                  <td class="py-2.5 px-4">
+                    <img v-if="m.cover_url" :src="m.cover_url" class="w-12 h-16 object-cover rounded bg-slate-800" loading="lazy">
+                    <div v-else class="w-12 h-16 bg-slate-800 rounded flex items-center justify-center text-[10px] text-slate-600">无封面</div>
+                  </td>
+                  <td class="py-2.5 px-4 font-mono font-bold text-white">{{ m.code }}</td>
+                  <td class="py-2.5 px-4">
+                    <div class="text-slate-100 font-medium">{{ m.title_zh || m.title || m.official_title || '-' }}</div>
+                    <div class="text-[11px] text-slate-500 mt-0.5" v-if="m.title_zh && m.title !== m.title_zh">{{ m.title }}</div>
+                  </td>
+                  <td class="py-2.5 px-4">
+                    <span class="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[11px] border border-slate-700">{{ m.category }}</span>
+                  </td>
+                  <td class="py-2.5 px-4 font-mono text-slate-400">{{ m.release_date || m.publish_date || '-' }}</td>
+                  <td class="py-2.5 px-4">
+                    <span :class="[m.scrape_status === 'success' ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-slate-800 text-slate-400 border-slate-700', 'px-2 py-0.5 rounded text-[11px] border font-mono']">{{ m.scrape_status }}</span>
+                  </td>
+                  <td class="py-2.5 px-4 text-right space-x-1.5">
+                    <button @click="openMovieDetail(m.code)" class="px-2 py-1 bg-brand-600/20 hover:bg-brand-600/40 text-brand-300 rounded transition text-[11px] border border-brand-700/40">编辑/版本</button>
+                    <button @click="deleteMovie(m.code)" class="px-2 py-1 bg-rose-950/30 hover:bg-rose-900/50 text-rose-400 rounded transition text-[11px] border border-rose-800/40">删除</button>
+                  </td>
+                </tr>
+                <tr v-if="moviesList.length === 0">
+                  <td colspan="7" class="py-12 text-center text-slate-500">暂无影片数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination -->
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>共 {{ moviesTotal }} 部影片</span>
+            <div class="space-x-2">
+              <button :disabled="moviesQuery.page <= 1" @click="moviesQuery.page--; fetchMovies()" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded disabled:opacity-40">上一页</button>
+              <span>第 {{ moviesQuery.page }} 页</span>
+              <button :disabled="moviesList.length < moviesQuery.limit" @click="moviesQuery.page++; fetchMovies()" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded disabled:opacity-40">下一页</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. SCRAPER VIEW -->
+        <div v-else-if="currentTab === 'scraper'" class="space-y-6 max-w-3xl">
+          <h1 class="text-2xl font-bold text-white">JavDB 刮削中心</h1>
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-5 shadow">
+            <h3 class="text-base font-semibold text-slate-200">批量刮削参数配置</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">日期字段基准</label>
+                <select v-model="scraperForm.date_field" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200">
+                  <option value="release_date">发行日期 (release_date)</option>
+                  <option value="publish_date">发布日期 (publish_date)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">最大刮削条数限制</label>
+                <input v-model.number="scraperForm.limit" type="number" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">起始日期</label>
+                <input v-model="scraperForm.start_date" type="date" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">结束日期</label>
+                <input v-model="scraperForm.end_date" type="date" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200">
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-6 pt-2">
+              <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                <input type="checkbox" v-model="scraperForm.include_failed" class="rounded bg-slate-950 border-slate-700 text-brand-500">
+                <span>包含历史失败条目 (not_found/transient)</span>
+              </label>
+              <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                <input type="checkbox" v-model="scraperForm.include_exempt" class="rounded bg-slate-950 border-slate-700 text-brand-500">
+                <span>包含免刮削标记影片 (exempt)</span>
+              </label>
+            </div>
+
+            <div class="pt-4 border-t border-slate-800 flex items-center justify-between">
+              <span class="text-xs text-slate-400">任务将以 202 Accepted 异步提交到调度队列</span>
+              <button @click="triggerScraper" :disabled="loading" class="px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-medium rounded-lg transition shadow">立即触发刮削</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. RANKINGS & SCHEDULES VIEW -->
+        <div v-else-if="currentTab === 'schedules'" class="space-y-6">
+          <div class="flex items-center justify-between">
+            <h1 class="text-2xl font-bold text-white">榜单与自动化日程</h1>
+            <div class="space-x-2">
+              <button @click="triggerTask('sync30d')" class="px-3 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-700/50 rounded-lg text-xs transition">即时同步30D</button>
+              <button @click="triggerTask('rankings')" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs transition font-medium">即时同步榜单</button>
+            </div>
+          </div>
+
+          <!-- Schedules List -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-slate-200">周期性自动化日程 (Schedules)</h3>
+              <button @click="openNewScheduleModal" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded text-slate-200 border border-slate-700">+ 新增日程</button>
+            </div>
+            <table class="w-full text-left text-xs text-slate-300">
+              <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase font-medium">
+                <tr>
+                  <th class="py-3 px-4">标识 (ID)</th>
+                  <th class="py-3 px-4">任务类型</th>
+                  <th class="py-3 px-4">时区</th>
+                  <th class="py-3 px-4">触发规则</th>
+                  <th class="py-3 px-4">状态</th>
+                  <th class="py-3 px-4 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                <tr v-for="s in schedulesList" :key="s.id" class="hover:bg-slate-800/40">
+                  <td class="py-3 px-4 font-mono font-medium text-white">{{ s.id }}</td>
+                  <td class="py-3 px-4"><span class="px-2 py-0.5 bg-slate-800 rounded text-[11px] font-mono text-slate-300">{{ s.kind }}</span></td>
+                  <td class="py-3 px-4 text-slate-400 font-mono">{{ s.timezone }}</td>
+                  <td class="py-3 px-4 text-slate-300 font-mono text-[11px]">{{ s.rule_json }}</td>
+                  <td class="py-3 px-4">
+                    <span :class="[s.enabled ? 'text-emerald-400' : 'text-slate-500', 'font-medium']">{{ s.enabled ? '已启用' : '已停用' }}</span>
+                  </td>
+                  <td class="py-3 px-4 text-right space-x-2">
+                    <button @click="deleteSchedule(s.id)" class="text-rose-400 hover:underline">删除</button>
+                  </td>
+                </tr>
+                <tr v-if="schedulesList.length === 0">
+                  <td colspan="6" class="py-8 text-center text-slate-500">暂无日程配置</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 6. LIBRARIES VIEW -->
+        <div v-else-if="currentTab === 'libraries'" class="space-y-6 max-w-4xl">
+          <h1 class="text-2xl font-bold text-white">固定视图 (Libraries) 管理</h1>
+          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow">
+            <table class="w-full text-left text-xs text-slate-300">
+              <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase font-medium">
+                <tr>
+                  <th class="py-3 px-4 w-20">顺序</th>
+                  <th class="py-3 px-4">名称</th>
+                  <th class="py-3 px-4">分类谓词 (Predicate)</th>
+                  <th class="py-3 px-4 w-28">状态</th>
+                  <th class="py-3 px-4 w-32 text-right">保存</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                <tr v-for="lib in librariesList" :key="lib.id" class="hover:bg-slate-800/40">
+                  <td class="py-3 px-4">
+                    <input v-model.number="lib.sort_order" type="number" class="w-14 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-center">
+                  </td>
+                  <td class="py-3 px-4">
+                    <input v-model="lib.name" type="text" class="px-2.5 py-1 bg-slate-950 border border-slate-700 rounded w-48 text-slate-100 font-medium">
+                  </td>
+                  <td class="py-3 px-4 font-mono text-slate-400">{{ lib.predicate }}</td>
+                  <td class="py-3 px-4">
+                    <button @click="lib.enabled = lib.enabled ? 0 : 1" :class="[lib.enabled ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-slate-800 text-slate-500 border-slate-700', 'px-2 py-0.5 rounded text-[11px] border font-medium']">
+                      {{ lib.enabled ? '已启用' : '已停用' }}
+                    </button>
+                  </td>
+                  <td class="py-3 px-4 text-right">
+                    <button @click="saveLibrary(lib)" class="px-2.5 py-1 bg-brand-600 hover:bg-brand-500 text-white rounded transition text-xs font-medium">保存</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 7. USERS VIEW -->
+        <div v-else-if="currentTab === 'users'" class="space-y-6 max-w-4xl">
+          <div class="flex items-center justify-between">
+            <h1 class="text-2xl font-bold text-white">用户管理与凭据</h1>
+            <button @click="showNewUserModal = true" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs transition font-medium">+ 创建用户</button>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow">
+            <table class="w-full text-left text-xs text-slate-300">
+              <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase font-medium">
+                <tr>
+                  <th class="py-3 px-4">用户名</th>
+                  <th class="py-3 px-4">角色</th>
+                  <th class="py-3 px-4">账号状态</th>
+                  <th class="py-3 px-4">首次强制改密</th>
+                  <th class="py-3 px-4 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                <tr v-for="u in usersList" :key="u.id" class="hover:bg-slate-800/40">
+                  <td class="py-3 px-4 font-medium text-white">{{ u.username }}</td>
+                  <td class="py-3 px-4">
+                    <span :class="[u.is_admin ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-slate-800 text-slate-400 border-slate-700', 'px-2 py-0.5 rounded text-[11px] border font-medium']">
+                      {{ u.is_admin ? '管理员' : '普通用户' }}
+                    </span>
+                  </td>
+                  <td class="py-3 px-4">
+                    <span :class="[u.enabled ? 'text-emerald-400' : 'text-rose-400', 'font-medium']">{{ u.enabled ? '正常' : '已停用' }}</span>
+                  </td>
+                  <td class="py-3 px-4 font-mono text-slate-400">{{ u.must_change_password ? '是' : '否' }}</td>
+                  <td class="py-3 px-4 text-right space-x-2">
+                    <button @click="openResetPassword(u)" class="text-brand-400 hover:underline">重置密码</button>
+                    <button @click="toggleUserEnabled(u)" class="text-amber-400 hover:underline">{{ u.enabled ? '停用' : '启用' }}</button>
+                    <button @click="deleteUser(u)" class="text-rose-400 hover:underline">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 8. SETTINGS & 115 VIEW -->
+        <div v-else-if="currentTab === 'settings'" class="space-y-6 max-w-4xl">
+          <div class="flex items-center justify-between">
+            <h1 class="text-2xl font-bold text-white">系统设置与 115 账号</h1>
+            <button @click="saveSettings" :disabled="loading" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-medium transition shadow">保存配置</button>
+          </div>
+
+          <!-- 115 Binding Card -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-semibold text-white">115 云盘绑定状态</h3>
+                <p class="text-xs text-slate-400 mt-0.5">用于云端永久根扫描与临时转存</p>
+              </div>
+              <span :class="[cloud115.configured ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-slate-800 text-slate-500 border-slate-700', 'px-2.5 py-1 rounded-full text-xs border font-medium']">
+                {{ cloud115.configured ? '已绑定 115 账号 (' + cloud115.provider_user_id + ')' : '未绑定账号' }}
+              </span>
+            </div>
+            <div class="flex items-center space-x-3 pt-2">
+              <button @click="start115Auth" class="px-3 py-1.5 bg-brand-600/20 hover:bg-brand-600/40 text-brand-300 border border-brand-700/50 rounded-lg text-xs transition">扫码绑定 / 重新授权</button>
+            </div>
+            <div v-if="qrCodeData" class="mt-4 p-4 bg-slate-950 border border-slate-800 rounded-xl flex items-center space-x-6">
+              <img :src="qrCodeData.qrcode_url" class="w-36 h-36 bg-white p-2 rounded shadow">
+              <div class="space-y-2 text-xs text-slate-300">
+                <div class="font-bold text-white text-sm">请使用 115 手机客户端扫码</div>
+                <div>设备识别码: <span class="font-mono text-brand-400">{{ qrCodeData.user_code }}</span></div>
+                <div class="text-slate-400">有效期: {{ qrCodeData.expires_in }} 秒</div>
+                <button @click="poll115Auth" class="px-3 py-1 bg-brand-600 text-white rounded text-xs">我已扫码确认</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- System Settings Form -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow space-y-5">
+            <h3 class="text-sm font-semibold text-white border-b border-slate-800 pb-3">核心运行时参数</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label class="block font-medium text-slate-300 mb-1">临时转存目录 CID (temp_transfer_cid)</label>
+                <input v-model="settingsValues.temp_transfer_cid" type="text" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200">
+              </div>
+              <div>
+                <label class="block font-medium text-slate-300 mb-1">临时资产有效保留天数 (cleanup_ttl_days)</label>
+                <input v-model="settingsValues.cleanup_ttl_days" type="number" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200">
+              </div>
+              <div>
+                <label class="block font-medium text-slate-300 mb-1">转存并发上限 (transfer_concurrency: 1~4)</label>
+                <input v-model="settingsValues.transfer_concurrency" type="number" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200">
+              </div>
+              <div>
+                <label class="block font-medium text-slate-300 mb-1">播放等待时延毫秒 (stream_wait_ms: 0~10000)</label>
+                <div class="relative">
+                  <input v-model="settingsValues.stream_wait_ms" :disabled="envOverrides.stream_wait_ms !== undefined" type="number" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 disabled:opacity-50">
+                  <span v-if="envOverrides.stream_wait_ms !== undefined" class="absolute right-2.5 top-2 text-[10px] text-amber-400">环境变量覆盖</span>
+                </div>
+              </div>
+              <div>
+                <label class="block font-medium text-slate-300 mb-1">JavDB 请求间隔秒数 (javdb_request_interval_sec >= 3)</label>
+                <input v-model="settingsValues.javdb_request_interval_sec" type="text" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200">
+              </div>
+              <div>
+                <label class="block font-medium text-slate-300 mb-1">刮削代理 URL (proxy_url)</label>
+                <input v-model="secretReplacements.proxy_url" placeholder="留空保持不变 / 输入新代理" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 9. REAL-TIME LOGS VIEW -->
+        <div v-else-if="currentTab === 'logs'" class="space-y-4 h-full flex flex-col">
+          <div class="flex items-center justify-between">
+            <h1 class="text-2xl font-bold text-white">实时日志流</h1>
+            <div class="flex items-center space-x-3 text-xs">
+              <span class="flex items-center space-x-1.5">
+                <span :class="[wsConnected ? 'bg-emerald-500' : 'bg-rose-500', 'w-2 h-2 rounded-full']"></span>
+                <span class="text-slate-400">{{ wsConnected ? '已连接' : '已断开' }}</span>
+              </span>
+              <button @click="logsList = []" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 border border-slate-700">清空</button>
+            </div>
+          </div>
+
+          <!-- Log Console Window -->
+          <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-xs overflow-y-auto space-y-1 shadow-inner h-[600px]" ref="logContainer">
+            <div v-for="(log, idx) in logsList" :key="idx" class="flex space-x-2 py-0.5 leading-relaxed">
+              <span class="text-slate-500 select-none">{{ log.timestamp }}</span>
+              <span :class="[log.level === 'ERROR' ? 'text-rose-400 font-bold' : log.level === 'WARN' ? 'text-amber-400 font-bold' : 'text-sky-400', 'w-14 shrink-0']">[{{ log.level }}]</span>
+              <span class="text-slate-300 break-all">{{ log.message }}</span>
+            </div>
+            <div v-if="logsList.length === 0" class="text-slate-600 text-center py-12">等待日志推送...</div>
+          </div>
+        </div>
+
+        <!-- Movie Detail / Edit Modal -->
+        <div v-if="activeMovieModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 class="text-lg font-bold text-white font-mono">{{ activeMovieModal.movie.code }}</h3>
+              <button @click="activeMovieModal = null" class="text-slate-400 hover:text-white text-xl font-bold">&times;</button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label class="block text-slate-400 mb-1">中文标题 (人工锁字段)</label>
+                <input v-model="activeMovieModal.movie.title_zh" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">评分 (0~5)</label>
+                <input v-model.number="activeMovieModal.movie.score" type="number" step="0.1" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100">
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-slate-400 mb-1">中文描述</label>
+                <textarea v-model="activeMovieModal.movie.description_zh" rows="3" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100"></textarea>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+              <button @click="triggerColdPrepare(activeMovieModal.movie.code)" class="px-3 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-700/50 rounded-lg text-xs transition">触发冷准备 (预转存)</button>
+              <button @click="saveMovieDetail" class="px-4 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-medium transition">保存更改</button>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
   </div>
+
+  <script>
+    const { createApp, ref, reactive, onMounted } = Vue;
+
+    createApp({
+      setup() {
+        const currentTab = ref('dashboard');
+        const loading = ref(false);
+        const banner = reactive({ show: false, message: '', type: 'info' });
+        const showChangePassword = ref(false);
+        const showNewUserModal = ref(false);
+        const activeMovieModal = ref(null);
+
+        const navItems = [
+          { id: 'dashboard', label: '系统仪表盘', icon: '📊' },
+          { id: 'movies', label: '影片与版本', icon: '🎬' },
+          { id: 'scraper', label: 'JavDB 刮削', icon: '🌐' },
+          { id: 'schedules', label: '榜单与日程', icon: '⏱️' },
+          { id: 'libraries', label: '固定视图', icon: '📁' },
+          { id: 'users', label: '用户管理', icon: '👥' },
+          { id: 'settings', label: '系统与115', icon: '⚙️' },
+          { id: 'logs', label: '实时日志', icon: '📜' },
+        ];
+
+        const auth = reactive({
+          isLoggedIn: false,
+          user: null,
+          token: localStorage.getItem('mv_token') || '',
+          csrfToken: localStorage.getItem('mv_csrf') || ''
+        });
+
+        const loginForm = reactive({ username: '', password: '' });
+        const stats = ref({});
+        const moviesList = ref([]);
+        const moviesTotal = ref(0);
+        const moviesQuery = reactive({ page: 1, limit: 20, q: '', category: '' });
+
+        const scraperForm = reactive({
+          date_field: 'release_date',
+          start_date: '',
+          end_date: '',
+          include_failed: true,
+          include_exempt: false,
+          limit: 100
+        });
+
+        const schedulesList = ref([]);
+        const librariesList = ref([]);
+        const usersList = ref([]);
+        const settingsValues = ref({});
+        const settingsRevision = ref(1);
+        const envOverrides = ref({});
+        const secretReplacements = reactive({ proxy_url: '' });
+        const cloud115 = ref({ configured: false });
+        const qrCodeData = ref(null);
+
+        const logsList = ref([]);
+        const wsConnected = ref(false);
+        let ws = null;
+
+        function showMsg(msg, type = 'info') {
+          banner.message = msg;
+          banner.type = type;
+          banner.show = true;
+          setTimeout(() => { banner.show = false; }, 4000);
+        }
+
+        async function apiReq(url, method = 'GET', body = null) {
+          const headers = { 'Content-Type': 'application/json' };
+          if (auth.token) headers['Authorization'] = 'Bearer ' + auth.token;
+          if (auth.csrfToken) headers['X-CSRF-Token'] = auth.csrfToken;
+
+          const opt = { method, headers };
+          if (body) opt.body = JSON.stringify(body);
+
+          const res = await fetch(url, opt);
+          if (res.status === 401) {
+            auth.isLoggedIn = false;
+            localStorage.removeItem('mv_token');
+            throw new Error('登录已失效');
+          }
+          const json = await res.json();
+          if (!res.ok) {
+            throw new Error(json.error?.message || '请求失败');
+          }
+          return json.data !== undefined ? json.data : json;
+        }
+
+        async function login() {
+          try {
+            loading.value = true;
+            const res = await apiReq('/api/v1/auth/login', 'POST', loginForm);
+            auth.token = res.token;
+            auth.csrfToken = res.csrf_token;
+            auth.user = res.user;
+            auth.isLoggedIn = true;
+            localStorage.setItem('mv_token', res.token);
+            localStorage.setItem('mv_csrf', res.csrf_token);
+            showMsg('登录成功', 'success');
+            initData();
+          } catch (e) {
+            showMsg(e.message, 'error');
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function logout() {
+          try {
+            await apiReq('/api/v1/auth/logout', 'POST');
+          } catch (e) {}
+          auth.isLoggedIn = false;
+          auth.token = '';
+          auth.csrfToken = '';
+          localStorage.removeItem('mv_token');
+          localStorage.removeItem('mv_csrf');
+          if (ws) ws.close();
+        }
+
+        async function fetchStats() {
+          try {
+            stats.value = await apiReq('/api/v1/stats');
+          } catch (e) {}
+        }
+
+        async function fetchMovies() {
+          try {
+            const p = new URLSearchParams(moviesQuery);
+            const res = await apiReq('/api/v1/movies?' + p.toString());
+            moviesList.value = res.items || [];
+            moviesTotal.value = res.total || 0;
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function openMovieDetail(code) {
+          try {
+            activeMovieModal.value = await apiReq('/api/v1/movies/' + code);
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function saveMovieDetail() {
+          if (!activeMovieModal.value) return;
+          try {
+            const code = activeMovieModal.value.movie.code;
+            await apiReq('/api/v1/movies/' + code, 'PUT', {
+              title_zh: activeMovieModal.value.movie.title_zh,
+              description_zh: activeMovieModal.value.movie.description_zh,
+              score: activeMovieModal.value.movie.score
+            });
+            showMsg('保存成功', 'success');
+            activeMovieModal.value = null;
+            fetchMovies();
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function deleteMovie(code) {
+          if (!confirm('确定软删除影片 ' + code + ' 吗？')) return;
+          try {
+            await apiReq('/api/v1/movies/' + code, 'DELETE');
+            showMsg('已删除', 'success');
+            fetchMovies();
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function triggerColdPrepare(code) {
+          try {
+            const res = await apiReq('/api/v1/movies/' + code + '/prepare', 'POST');
+            showMsg('预转存已调度: ' + (res.status || '成功'), 'success');
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function triggerScraper() {
+          try {
+            loading.value = true;
+            const res = await apiReq('/api/v1/scraper/trigger', 'POST', scraperForm);
+            showMsg('刮削已调度，任务ID: ' + res.task_id + '，候选数: ' + res.candidates_count, 'success');
+          } catch (e) {
+            showMsg(e.message, 'error');
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function triggerTask(kind) {
+          try {
+            const res = await apiReq('/api/v1/tasks/trigger', 'POST', { kind });
+            showMsg('任务已调度: ' + res.status + ' (' + res.task_id + ')', 'success');
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function fetchSchedules() {
+          try {
+            schedulesList.value = await apiReq('/api/v1/schedules');
+          } catch (e) {}
+        }
+
+        async function deleteSchedule(id) {
+          if (!confirm('确定删除该日程吗？')) return;
+          try {
+            await apiReq('/api/v1/schedules/' + id, 'DELETE');
+            showMsg('日程已删除', 'success');
+            fetchSchedules();
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function fetchLibraries() {
+          try {
+            librariesList.value = await apiReq('/api/v1/libraries');
+          } catch (e) {}
+        }
+
+        async function saveLibrary(lib) {
+          try {
+            await apiReq('/api/v1/libraries/' + lib.id, 'PUT', {
+              name: lib.name,
+              sort_order: lib.sort_order,
+              enabled: lib.enabled
+            });
+            showMsg('固定视图已更新', 'success');
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function fetchUsers() {
+          try {
+            usersList.value = await apiReq('/api/v1/users');
+          } catch (e) {}
+        }
+
+        async function toggleUserEnabled(u) {
+          try {
+            const newEn = u.enabled ? 0 : 1;
+            await apiReq('/api/v1/users/' + u.id, 'PUT', { enabled: newEn });
+            u.enabled = newEn;
+            showMsg('用户状态已更新', 'success');
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function deleteUser(u) {
+          if (!confirm('确定删除用户 ' + u.username + ' 吗？')) return;
+          try {
+            await apiReq('/api/v1/users/' + u.id, 'DELETE');
+            showMsg('用户已删除', 'success');
+            fetchUsers();
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function fetchSettings() {
+          try {
+            const res = await apiReq('/api/v1/settings');
+            settingsValues.value = res.values || {};
+            settingsRevision.value = res.revision || 1;
+            envOverrides.value = res.env_overrides || {};
+            cloud115.value = await apiReq('/api/v1/115/status');
+          } catch (e) {}
+        }
+
+        async function saveSettings() {
+          try {
+            loading.value = true;
+            const secrets = {};
+            if (secretReplacements.proxy_url) {
+              secrets.proxy_url = { action: 'replace', value: secretReplacements.proxy_url };
+            }
+            await apiReq('/api/v1/settings', 'PUT', {
+              revision: settingsRevision.value,
+              values: settingsValues.value,
+              secrets: secrets
+            });
+            showMsg('设置保存成功', 'success');
+            fetchSettings();
+          } catch (e) {
+            showMsg(e.message, 'error');
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function start115Auth() {
+          try {
+            const res = await apiReq('/api/v1/115/auth/device', 'POST');
+            qrCodeData.value = res;
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        async function poll115Auth() {
+          if (!qrCodeData.value) return;
+          try {
+            await apiReq('/api/v1/115/auth/poll', 'POST', {
+              device_code: qrCodeData.value.device_code,
+              code_verifier: qrCodeData.value.code_verifier
+            });
+            showMsg('115 账号绑定成功！', 'success');
+            qrCodeData.value = null;
+            fetchSettings();
+          } catch (e) {
+            showMsg(e.message, 'error');
+          }
+        }
+
+        function connectWS() {
+          if (!auth.token) return;
+          const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          ws = new WebSocket(`${proto}//${window.location.host}/api/v1/ws/logs?token=${auth.token}`);
+          ws.onopen = () => { wsConnected.value = true; };
+          ws.onclose = () => {
+            wsConnected.value = false;
+            setTimeout(() => { if (auth.isLoggedIn) connectWS(); }, 3000);
+          };
+          ws.onmessage = (event) => {
+            try {
+              const entry = JSON.parse(event.data);
+              logsList.value.push(entry);
+              if (logsList.value.length > 500) logsList.value.shift();
+            } catch (e) {}
+          };
+        }
+
+        function percent(part, total) {
+          if (!part || !total) return 0;
+          return Math.min(100, Math.round((part / total) * 100));
+        }
+
+        function initData() {
+          fetchStats();
+          fetchMovies();
+          fetchSchedules();
+          fetchLibraries();
+          fetchUsers();
+          fetchSettings();
+          connectWS();
+        }
+
+        onMounted(async () => {
+          if (auth.token) {
+            try {
+              const me = await apiReq('/api/v1/auth/me');
+              auth.user = me;
+              auth.isLoggedIn = true;
+              initData();
+            } catch (e) {
+              auth.isLoggedIn = false;
+            }
+          }
+        });
+
+        return {
+          currentTab, loading, banner, showChangePassword, showNewUserModal, activeMovieModal,
+          navItems, auth, loginForm, stats, moviesList, moviesTotal, moviesQuery,
+          scraperForm, schedulesList, librariesList, usersList, settingsValues, envOverrides,
+          secretReplacements, cloud115, qrCodeData, logsList, wsConnected,
+          login, logout, fetchStats, fetchMovies, openMovieDetail, saveMovieDetail, deleteMovie,
+          triggerColdPrepare, triggerScraper, triggerTask, fetchSchedules, deleteSchedule,
+          saveLibrary, toggleUserEnabled, deleteUser, saveSettings, start115Auth, poll115Auth, percent
+        };
+      }
+    }).mount('#app');
+  </script>
 </body>
 </html>
