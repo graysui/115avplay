@@ -26,6 +26,10 @@ func setupTestDB(t *testing.T) (*db.DB, string) {
 		t.Fatalf("failed to init schema: %v", err)
 	}
 
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
 	return database, tempDir
 }
 

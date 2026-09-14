@@ -25,7 +25,7 @@ func RegisterAdminRoutes(
 	auth115 *client115.AuthClient,
 ) {
 	authHandler := NewAuthHandler(userRepo)
-	statsHandler := NewStatsHandler(database)
+	statsHandler := NewStatsHandler(database, settingsRepo, appConfig)
 	settingsHandler := NewSettingsHandler(settingsRepo, appConfig)
 	moviesHandler := NewMoviesHandler(movieRepo, magnetRepo, assetRepo, transferManager)
 	librariesHandler := NewLibrariesHandler(libraryRepo)
@@ -51,8 +51,9 @@ func RegisterAdminRoutes(
 		protected.GET("/auth/me", authHandler.Me)
 		protected.POST("/auth/password", authHandler.ChangePassword)
 
-		// Dashboard Stats
+		// Dashboard & System Status
 		protected.GET("/stats", statsHandler.GetStats)
+		protected.GET("/status", statsHandler.GetSystemStatus)
 
 		// Settings
 		protected.GET("/settings", settingsHandler.GetSettings)

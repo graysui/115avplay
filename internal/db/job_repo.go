@@ -119,11 +119,14 @@ func (r *JobRepo) ClaimNextJob(ctx context.Context, kind, leaseOwner string, lea
 			       remote_id, owned_root_id, params_json, result_json, last_error,
 			       started_at, completed_at, created_at, updated_at
 			FROM jobs
-			WHERE kind = ? AND state IN ('queued', 'retry_wait')
-			  AND (next_run_at IS NULL OR next_run_at <= ?)
+			WHERE kind = ? AND (
+				(state IN ('queued', 'retry_wait') AND (next_run_at IS NULL OR next_run_at <= ?))
+				OR
+				(state = 'running' AND lease_until IS NOT NULL AND lease_until <= ?)
+			)
 			ORDER BY created_at ASC
 			LIMIT 1
-		`, kind, now)
+		`, kind, now, now)
 
 		err := row.Scan(
 			&claimed.ID, &claimed.Kind, &claimed.DedupeKey, &claimed.ResourceKey, &claimed.BindingID,

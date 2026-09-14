@@ -199,3 +199,55 @@ func (r *ProgressRepo) ListResumeMovies(ctx context.Context, userID string, limi
 	}
 	return items, nil
 }
+
+// GetProgress retrieves a user's progress for a movie.
+func (r *ProgressRepo) GetProgress(ctx context.Context, userID, movieCode string) (*models.UserProgress, error) {
+	var p models.UserProgress
+	err := r.db.ExecRead(ctx, func(database *sql.DB) error {
+		row := database.QueryRowContext(ctx, `
+			SELECT user_id, movie_code, active_session_id, position_ticks, duration_ticks,
+			       played, favorite, play_count, last_played_at, updated_at
+			FROM user_progress
+			WHERE user_id = ? AND movie_code = ?
+		`, userID, movieCode)
+		return row.Scan(
+			&p.UserID, &p.MovieCode, &p.ActiveSessionID, &p.PositionTicks, &p.DurationTicks,
+			&p.Played, &p.Favorite, &p.PlayCount, &p.LastPlayedAt, &p.UpdatedAt,
+		)
+	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get progress: %w", err)
+	}
+	return &p, nil
+}
+
+// UpsertProgress directly sets or updates user progress.
+func (r *ProgressRepo) UpsertProgress(ctx context.Context, p *models.UserProgress) error {
+	now := models.UTCNow()
+	if p.UpdatedAt == "" {
+		p.UpdatedAt = now
+	}
+	return r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO user_progress (
+				user_id, movie_code, active_session_id, position_ticks, duration_ticks,
+				played, favorite, play_count, last_played_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(user_id, movie_code) DO UPDATE SET
+				active_session_id = excluded.active_session_id,
+				position_ticks = excluded.position_ticks,
+				duration_ticks = COALESCE(excluded.duration_ticks, user_progress.duration_ticks),
+				played = CASE WHEN excluded.played = 1 THEN 1 ELSE user_progress.played END,
+				favorite = CASE WHEN excluded.favorite = 1 THEN 1 ELSE user_progress.favorite END,
+				play_count = user_progress.play_count + excluded.play_count,
+				last_played_at = COALESCE(excluded.last_played_at, user_progress.last_played_at),
+				updated_at = excluded.updated_at
+		`, p.UserID, p.MovieCode, p.ActiveSessionID, p.PositionTicks, p.DurationTicks,
+			p.Played, p.Favorite, p.PlayCount, p.LastPlayedAt, p.UpdatedAt)
+		return err
+	})
+}
+
