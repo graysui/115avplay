@@ -469,6 +469,20 @@ func (c *Client) GetDownloadURL(ctx context.Context, pickCode string) (*Download
 }
 
 // CreateFolder creates a directory under parentID and returns the new folder's cid.
+// DeleteFile deletes files/folders by their file IDs (OpenAPI /open/ufile/delete).
+func (c *Client) DeleteFile(ctx context.Context, fileIDs []string) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	endpoint := "/open/ufile/delete"
+	form := url.Values{}
+	form.Set("file_ids", strings.Join(fileIDs, ","))
+	if _, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded"); err != nil {
+		return fmt.Errorf("delete file: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) CreateFolder(ctx context.Context, parentID, folderName string) (string, error) {
 	endpoint := "/open/folder/add"
 	form := url.Values{}

@@ -11,34 +11,49 @@ import (
 
 // OfflineTask represents a cloud download task in 115.
 type OfflineTask struct {
-	InfoHash    string  `json:"info_hash"`
-	Name        string  `json:"name"`
-	Size        int64   `json:"size"`
-	PercentDone float64 `json:"percent_done"`
-	Status      int     `json:"status"` // -1: failed, 0: allocating, 1: downloading, 2: completed
-	FileID      string  `json:"file_id"`
-	URL         string  `json:"url"`
+	InfoHash      string  `json:"info_hash"`
+	Name          string  `json:"name"`
+	Size          int64   `json:"size"`
+	PercentDone   float64 `json:"percent_done"`
+	Status        int     `json:"status"` // -1: failed, 0: allocating, 1: downloading, 2: completed
+	FileID        string  `json:"file_id"`
+	URL           string  `json:"url"`
+	PickCode      string  `json:"pick_code"`      // pick code of the downloaded file (ready to resolve a direct link)
+	WpPathID      string  `json:"wp_path_id"`     // destination folder CID chosen when the task was created
+	DelPath       string  `json:"del_path"`       // relative path / name shown in the cloud
+	StatusText    string  `json:"status_text"`    // localized status (下载成功 / 下载失败 ...)
+	DisplayStatus string  `json:"display_status"` // finished / failed / downloading ...
 }
 
 // RawOfflineTask handles heterogeneous task fields.
 type RawOfflineTask struct {
-	InfoHash    string      `json:"info_hash"`
-	Name        string      `json:"name"`
-	Size        interface{} `json:"size"`
-	PercentDone interface{} `json:"percentDone"`
-	Status      int         `json:"status"`
-	FileID      interface{} `json:"file_id"`
-	URL         string      `json:"url"`
+	InfoHash      string      `json:"info_hash"`
+	Name          string      `json:"name"`
+	Size          interface{} `json:"size"`
+	PercentDone   interface{} `json:"percentDone"`
+	Status        int         `json:"status"`
+	FileID        interface{} `json:"file_id"`
+	URL           string      `json:"url"`
+	PickCode      string      `json:"pick_code"`
+	WpPathID      interface{} `json:"wp_path_id"`
+	DelPath       string      `json:"del_path"`
+	StatusText    string      `json:"status_text"`
+	DisplayStatus string      `json:"display_status"`
 }
 
 func (r *RawOfflineTask) Normalize() OfflineTask {
 	t := OfflineTask{
-		InfoHash: strings.ToUpper(r.InfoHash),
-		Name:     r.Name,
-		Size:     anyToInt64(r.Size),
-		Status:   r.Status,
-		FileID:   anyToString(r.FileID),
-		URL:      r.URL,
+		InfoHash:      strings.ToUpper(r.InfoHash),
+		Name:          r.Name,
+		Size:          anyToInt64(r.Size),
+		Status:        r.Status,
+		FileID:        anyToString(r.FileID),
+		URL:           r.URL,
+		PickCode:      r.PickCode,
+		WpPathID:      anyToString(r.WpPathID),
+		DelPath:       r.DelPath,
+		StatusText:    r.StatusText,
+		DisplayStatus: r.DisplayStatus,
 	}
 
 	// In 115 API, status 4 means searching resources / allocating -> map to 0
@@ -139,6 +154,35 @@ func (c *Client) GetTaskList(ctx context.Context, page int) ([]OfflineTask, int,
 	}
 
 	return tasks, rawData.Count, nil
+}
+
+// FindTaskByInfoHash scans the offline task list (newest first) for a task
+// matching the given info hash. 115 deduplicates magnet tasks globally, so a
+// second add_task_urls for the same magnet returns 10008 ("任务已存在"); this
+// lookup lets us recover the already-downloaded file instead of failing.
+func (c *Client) FindTaskByInfoHash(ctx context.Context, infoHash string, maxPages int) (*OfflineTask, error) {
+	infoHash = strings.ToUpper(strings.TrimSpace(infoHash))
+	if infoHash == "" {
+		return nil, nil
+	}
+	if maxPages <= 0 {
+		maxPages = 8
+	}
+	for page := 1; page <= maxPages; page++ {
+		tasks, _, err := c.GetTaskList(ctx, page)
+		if err != nil {
+			return nil, err
+		}
+		if len(tasks) == 0 {
+			break
+		}
+		for i := range tasks {
+			if strings.EqualFold(tasks[i].InfoHash, infoHash) {
+				return &tasks[i], nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // DeleteTask removes an offline task by info_hash.

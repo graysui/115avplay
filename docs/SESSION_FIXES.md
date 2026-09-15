@@ -175,6 +175,22 @@ docker run -d --name mediavault --restart unless-stopped \
   - 实测：同一版本连续请求 `0.67s → 0.003s`（第 2/3 次命中缓存，未请求 115）。
   - 说明：115 CDN 直链本身支持 **HTTP Range**，同一有效直链上拖动无需重新解析；仅当直链过期或切换版本时才重新申请。
 
+### 4.10 `10008 任务已存在` 导致永远「准备中」
+- **现象**：某部片（如 `MIDA-744`）反复返回 `503 准备中`，日志为
+  `提交 115 离线任务失败... code=10008: 任务已存在，请勿输入重复的链接地址`。
+- **根因（4 个叠加）**：
+  1. `10008` 被当作失败转入 `reconcile` 状态，但**方案里根本没有 reconcile worker**（只有 `SetJobReconcile`，没人消费）→ 任务永久卡死，之后每次播放都 503；
+  2. `FindTaskByInfoHash` 用 `page*100 >= count` 判断是否翻页，而 115 的 `count` 是**当页数量**（100）而非总数（实际 4 页）→ 扫完第 1 页就退出，而目标任务在第 3 页；
+  3. 已完成任务的内容**不在 `wp_path_id`**（该目录 `count:0` 为空），而在任务自身的 **`file_id` 目录**下；
+  4. 任务自带的 `pick_code` 不能用于 downurl（返回 `data:[]`），必须使用目录列举中**文件自身的 pick code**。
+- **解决**：
+  - `OfflineTask` 补充 `pick_code / wp_path_id / del_path / status_text / display_status` 字段；`FindTaskByInfoHash` 改为按页扫描直到出现空页；
+  - 提交返回 `10008` 时：查任务列表**复用已有任务**，并删除刚建的空临时目录（新增 `client115.DeleteFile`）；
+  - `pollAndRegister` 重构；`locateReadyFile` 依次尝试 `folderID → wp_path_id → file_id`，取最大视频，用其 pick code 注册临时资产；
+  - 任务显示已完成但 60 秒内仍找不到文件 → 快速失败，避免无限轮询；
+  - 服务重启时 `FailOrphanedJobs` 会把残留的 `reconcile` 任务标记失败，因此之前卡死的任务重新触发即可恢复。
+- **验证**：`MIDA-744` 首次播放 `302`（约 8.6s，复用已有任务），第二次 `302`（0.002s，命中直链缓存）。
+
 ---
 
 ## 5. 封面图片
