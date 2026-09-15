@@ -141,6 +141,8 @@ docker run -d --name mediavault --restart unless-stopped \
 ### 4.2 `access_token 无效 (40140125)`
 - **根因**：OAuth access_token 过期且从不自动刷新。
 - **解决**：任何 115 API 遇到鉴权错误时**自动 `RefreshToken` 并重试一次**，刷新后的 token **加密持久化**。
+- **补充修复（后续暴露）**：刷新逻辑最初只写在了 `doRequestWithAuthRetry` 里，**只有 `GetDownloadURL` / `AddURLTask` 使用它**；`CreateFolder`（`/open/folder/add`）等其它 OpenAPI 调用走普通 `DoRequest`，仍报 `40140125`，造成「有的能播、有的转存失败」。现已把**刷新重试下沉到 `DoRequest` 本身**，覆盖全部 OpenAPI 调用（含递归保护 `refreshing` 与请求体缓冲以便重试）。
+  - 实测：冷资源 `IPX-515` / `PASN-038` 转存全链路成功（`已创建临时目录` → `已提交 115 离线任务` → `转存完成`）。
 
 ### 4.3 downurl 解析失败
 - **根因**：`/open/ufile/downurl` 返回的 `data.<id>.url` 是**嵌套对象** `{"url":"..."}`，不是字符串。
@@ -166,6 +168,12 @@ docker run -d --name mediavault --restart unless-stopped \
 ### 4.8 `SortBy` 400 `invalid sortby field`
 - **根因**：白名单过严（只允许 3 个字段），VidHub 发送的 `Random`/`DatePlayed` 等被拒。
 - **解决**：映射全部常见 Emby 排序字段，未知字段回退默认（不再 400）。
+
+### 4.9 快进会重新申请直链 / 直链未缓存
+- **现象**：播放器每次拖动进度条、请求分片都会重新打 `/stream`，每次都向 115 重新申请一条新直链（每次 302 前 0.3~2.5s 延迟），快进卡顿且浪费取链接口配额。
+- **解决**：新增**直链缓存**（`client115`）——按 `pick_code` 缓存直链，有效期取直链自带 `t`（过期时间戳）**减 60 秒**，未知则默认 5 分钟。
+  - 实测：同一版本连续请求 `0.67s → 0.003s`（第 2/3 次命中缓存，未请求 115）。
+  - 说明：115 CDN 直链本身支持 **HTTP Range**，同一有效直链上拖动无需重新解析；仅当直链过期或切换版本时才重新申请。
 
 ---
 
@@ -272,6 +280,8 @@ docker run -d --name mediavault --restart unless-stopped \
 | `Items/Resume` 500 | SQLite NULL 扫描（`official_title`）→ `COALESCE` 修复 |
 | 背景图取不到 | `preview_images` 是逗号分隔字符串，解析兼容 JSON/逗号 |
 | `Similar`/`Tags`/`Genres`… 404 | Emby 可选项，客户端会忽略（不影响播放） |
+| **首页各媒体库内容相同** | Emby 首页行用的是 `Items/Latest?ParentId=…`，而 `GetLatest` **忽略了 `ParentId`**，永远返回全库最新；抽出 `libraryPredicateClause` 供 `GetItems`/`GetLatest` 共用 |
+| **FC2/素人 库为空** | 谓词分类写成 `FC2`，实际离线库分类是 `FC2/素人` → 修正为 `IN ('FC2','FC2/素人','素人')` |
 
 ---
 
@@ -322,6 +332,8 @@ docker run -d --name mediavault --restart unless-stopped \
 - 库查询 = 榜单番号 ∩ 数据库存在 ∩ **有可用磁力**（离线库 + JavDB）；
 - `TriggerRankings` 默认同步全部三榜，日程同步三榜，TOP250 翻页拉全 250 条；
 - 幂等启动迁移 `EnsureRankingLibraries`（重建 `libraries` 的 CHECK、补种媒体库）。
+- **列表与首页行统一过滤**：`GetItems`（点进库）与 `GetLatest`（首页横向行）现在共用 `libraryPredicateClause`，保证每个库（含三个榜单库）首页展示各自内容。
+- **注意**：三个榜单库的内容依赖**榜单同步完成**；`TriggerRankings` 默认同步全部三榜，TOP250 会翻页拉满 250 条。实测 `ranking_entries`：`weekly=60 / monthly=60 / top250=250`。
 
 ---
 

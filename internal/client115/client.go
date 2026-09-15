@@ -65,6 +65,50 @@ type Client struct {
 	refreshMu   sync.Mutex
 	refreshFn   func(context.Context) error
 	refreshing  bool
+
+	dlURLMu    sync.Mutex
+	dlURLCache map[string]downloadURLCacheEntry
+}
+
+type downloadURLCacheEntry struct {
+	res       *DownloadURLResponse
+	expiresAt time.Time
+}
+
+// cacheDownloadURL stores a freshly obtained direct link. It expires 60 seconds
+// before the link's own `t` timestamp (or after 5 minutes if unknown), so rapid
+// seek/range requests reuse the same link instead of re-resolving it.
+func (c *Client) cacheDownloadURL(pickCode string, res *DownloadURLResponse) {
+	if res == nil || res.URL == "" {
+		return
+	}
+	exp := time.Now().Add(5 * time.Minute)
+	if u, err := url.Parse(res.URL); err == nil {
+		if t := u.Query().Get("t"); t != "" {
+			if ts, err := strconv.ParseInt(t, 10, 64); err == nil {
+				exp = time.Unix(ts, 0).Add(-60 * time.Second)
+			}
+		}
+	}
+	if exp.Before(time.Now().Add(30 * time.Second)) {
+		exp = time.Now().Add(30 * time.Second)
+	}
+	c.dlURLMu.Lock()
+	if c.dlURLCache == nil {
+		c.dlURLCache = map[string]downloadURLCacheEntry{}
+	}
+	c.dlURLCache[pickCode] = downloadURLCacheEntry{res: res, expiresAt: exp}
+	c.dlURLMu.Unlock()
+}
+
+func (c *Client) cachedDownloadURL(pickCode string) (*DownloadURLResponse, bool) {
+	c.dlURLMu.Lock()
+	defer c.dlURLMu.Unlock()
+	e, ok := c.dlURLCache[pickCode]
+	if !ok || time.Now().After(e.expiresAt) {
+		return nil, false
+	}
+	return e.res, true
 }
 
 // SetTokenRefresher registers a callback used to refresh the OAuth access token

@@ -275,10 +275,25 @@ func (c *Client) GetDownloadURLWeb(ctx context.Context, pickCode string) (*Downl
 // GetDownloadURLAuto prefers the cookie web API (reliable even when the OAuth
 // access token has expired) and falls back to the OpenAPI.
 func (c *Client) GetDownloadURLAuto(ctx context.Context, pickCode string) (*DownloadURLResponse, error) {
-	if strings.TrimSpace(c.GetCookie()) != "" {
-		if res, err := c.GetDownloadURLWeb(ctx, pickCode); err == nil {
-			return res, nil
-		}
+	// Reuse a still-valid direct link so seeks / repeated range requests do not
+	// re-resolve against 115 every time.
+	if res, ok := c.cachedDownloadURL(pickCode); ok {
+		return res, nil
 	}
-	return c.GetDownloadURL(ctx, pickCode)
+
+	var res *DownloadURLResponse
+	var err error
+	if strings.TrimSpace(c.GetCookie()) != "" {
+		res, err = c.GetDownloadURLWeb(ctx, pickCode)
+		if err != nil || res == nil {
+			res, err = c.GetDownloadURL(ctx, pickCode)
+		}
+	} else {
+		res, err = c.GetDownloadURL(ctx, pickCode)
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.cacheDownloadURL(pickCode, res)
+	return res, nil
 }
