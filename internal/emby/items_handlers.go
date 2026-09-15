@@ -108,32 +108,8 @@ func (h *ItemsHandlers) GetItems(w http.ResponseWriter, r *http.Request) {
 
 	// Filter by parentID (library)
 	if parentID != "" {
-		switch parentID {
-		case "lib_chinese_sub":
-			whereClauses = append(whereClauses, "m.code IN (SELECT movie_code FROM offline_magnets WHERE has_chinese_sub = 1 AND enabled = 1)")
-		case "lib_censored":
-			whereClauses = append(whereClauses, "m.category = '亚洲有码'")
-		case "lib_uncensored":
-			whereClauses = append(whereClauses, "m.category = '亚洲无码'")
-		case "lib_4k":
-			whereClauses = append(whereClauses, "m.code IN (SELECT movie_code FROM offline_magnets WHERE is_4k = 1 AND enabled = 1)")
-		case "lib_fc2":
-			whereClauses = append(whereClauses, "m.category = 'FC2'")
-		case "lib_domestic":
-			whereClauses = append(whereClauses, "m.category = '国产'")
-		case "lib_rank_weekly", "lib_rank_monthly", "lib_rank_top250":
-			// Ranking board virtual libraries: list ranking entries that exist in the
-			// local database AND have at least one playable resource. The board is
-			// populated by the rankings sync (which also backfills the database).
-			board := map[string]string{
-				"lib_rank_weekly":  "weekly",
-				"lib_rank_monthly": "monthly",
-				"lib_rank_top250":  "top250",
-			}[parentID]
-			whereClauses = append(whereClauses,
-				fmt.Sprintf("m.code IN (SELECT code FROM ranking_entries WHERE board = '%s')", board))
-			whereClauses = append(whereClauses,
-				"EXISTS (SELECT 1 FROM offline_magnets om WHERE om.movie_code = m.code AND om.enabled = 1)")
+		if clause, ok := libraryPredicateClause(parentID); ok {
+			whereClauses = append(whereClauses, clause)
 		}
 	}
 
@@ -365,6 +341,36 @@ func (h *ItemsHandlers) GetResume(w http.ResponseWriter, r *http.Request) {
 
 // GetLatest handles GET /items/latest and /users/{uid}/items/latest.
 // Returns an Item array directly (not wrapped in ItemsResponse).
+// libraryPredicateClause maps a virtual library id to a SQL WHERE clause on the
+// offline_movies alias "m". It is used by both the items list and the home-screen
+// "Latest" rows so every library shows its own content.
+func libraryPredicateClause(parentID string) (string, bool) {
+	switch parentID {
+	case "lib_chinese_sub":
+		return "m.code IN (SELECT movie_code FROM offline_magnets WHERE has_chinese_sub = 1 AND enabled = 1)", true
+	case "lib_censored":
+		return "m.category = '亚洲有码'", true
+	case "lib_uncensored":
+		return "m.category = '亚洲无码'", true
+	case "lib_4k":
+		return "m.code IN (SELECT movie_code FROM offline_magnets WHERE is_4k = 1 AND enabled = 1)", true
+	case "lib_fc2":
+		return "m.category IN ('FC2','FC2/素人','素人')", true
+	case "lib_domestic":
+		return "m.category = '国产'", true
+	case "lib_rank_weekly", "lib_rank_monthly", "lib_rank_top250":
+		board := map[string]string{
+			"lib_rank_weekly":  "weekly",
+			"lib_rank_monthly": "monthly",
+			"lib_rank_top250":  "top250",
+		}[parentID]
+		return fmt.Sprintf(
+			"m.code IN (SELECT code FROM ranking_entries WHERE board = '%s') AND EXISTS (SELECT 1 FROM offline_magnets om WHERE om.movie_code = m.code AND om.enabled = 1)",
+			board), true
+	}
+	return "", false
+}
+
 func (h *ItemsHandlers) GetLatest(w http.ResponseWriter, r *http.Request) {
 	user := UserFromContext(r.Context())
 	if user == nil {
@@ -379,6 +385,12 @@ func (h *ItemsHandlers) GetLatest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	parentID := strings.TrimSpace(GetQueryParam(r, "parentid"))
+	where := "m.deleted_at IS NULL"
+	if clause, ok := libraryPredicateClause(parentID); ok {
+		where += " AND " + clause
+	}
+
 	query := `
 		SELECT m.code, m.title, m.official_title, m.category, m.publish_date, m.release_date,
 		       m.first_seen_at, m.preview_images, m.title_zh, m.description_zh, m.cover_url,
@@ -386,7 +398,7 @@ func (h *ItemsHandlers) GetLatest(w http.ResponseWriter, r *http.Request) {
 		       p.position_ticks, p.duration_ticks, p.played, p.favorite, p.play_count, p.last_played_at
 		FROM offline_movies m
 		LEFT JOIN user_progress p ON p.movie_code = m.code AND p.user_id = ?
-		WHERE m.deleted_at IS NULL
+		WHERE ` + where + `
 		ORDER BY m.created_at DESC, m.code ASC
 		LIMIT ?
 	`

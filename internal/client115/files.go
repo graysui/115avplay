@@ -406,7 +406,7 @@ func (c *Client) GetDownloadURL(ctx context.Context, pickCode string) (*Download
 	form := url.Values{}
 	form.Set("pick_code", pickCode)
 
-	resp, err := c.doRequestWithAuthRetry(ctx, endpoint, form)
+	resp, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if err != nil {
 		return nil, fmt.Errorf("get download url: %w", err)
 	}

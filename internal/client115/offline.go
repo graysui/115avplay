@@ -74,7 +74,7 @@ func (c *Client) AddURLTask(ctx context.Context, resourceURL, targetCID string) 
 	form.Set("urls", resourceURL)
 	form.Set("wp_path_id", targetCID)
 
-	resp, err := c.doRequestWithAuthRetry(ctx, endpoint, form)
+	resp, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if err != nil {
 		return "", fmt.Errorf("add url task: %w", err)
 	}

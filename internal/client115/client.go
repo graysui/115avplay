@@ -1,6 +1,7 @@
 package client115
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,6 +64,7 @@ type Client struct {
 	cookie      string
 	refreshMu   sync.Mutex
 	refreshFn   func(context.Context) error
+	refreshing  bool
 }
 
 // SetTokenRefresher registers a callback used to refresh the OAuth access token
@@ -153,28 +155,6 @@ func (c *Client) WebBaseURL() string {
 	return c.config.WebBaseURL
 }
 
-// doRequestWithAuthRetry issues a POST form request, refreshing the OAuth token
-// once and retrying if the server reports an authentication failure.
-func (c *Client) doRequestWithAuthRetry(ctx context.Context, endpoint string, form url.Values) (*BaseResponse, error) {
-	body := form.Encode()
-	resp, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(body), "application/x-www-form-urlencoded")
-	if err == nil {
-		return resp, nil
-	}
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.Category == ErrCatAuth {
-		c.refreshMu.Lock()
-		fn := c.refreshFn
-		c.refreshMu.Unlock()
-		if fn != nil {
-			if rerr := fn(ctx); rerr == nil {
-				return c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(body), "application/x-www-form-urlencoded")
-			}
-		}
-	}
-	return resp, err
-}
-
 // SetAccessToken sets the current active OAuth access token.
 func (c *Client) SetAccessToken(token string) {
 	c.authMu.Lock()
@@ -223,7 +203,49 @@ func (b *BaseResponse) IsSuccess() bool {
 }
 
 // DoRequest performs an authenticated HTTP request with concurrency control and error classification.
+// DoRequest performs an OpenAPI request. If the server reports an authentication
+// error, it refreshes the OAuth access token once (if a refresher is registered)
+// and retries, so every 115 call benefits from automatic token renewal.
 func (c *Client) DoRequest(ctx context.Context, method, endpoint string, query url.Values, body io.Reader, contentType string) (*BaseResponse, error) {
+	var bodyBytes []byte
+	if body != nil {
+		bodyBytes, _ = io.ReadAll(body)
+	}
+
+	resp, err := c.doRequestOnce(ctx, method, endpoint, query, bodyBytes, contentType)
+	if err == nil {
+		return resp, nil
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Category != ErrCatAuth {
+		return resp, err
+	}
+
+	// Refresh once, but never recurse (the refresh request itself goes through
+	// DoRequest too).
+	c.refreshMu.Lock()
+	fn := c.refreshFn
+	if fn == nil || c.refreshing {
+		c.refreshMu.Unlock()
+		return resp, err
+	}
+	c.refreshing = true
+	c.refreshMu.Unlock()
+
+	rerr := fn(ctx)
+
+	c.refreshMu.Lock()
+	c.refreshing = false
+	c.refreshMu.Unlock()
+	if rerr != nil {
+		return resp, err
+	}
+
+	return c.doRequestOnce(ctx, method, endpoint, query, bodyBytes, contentType)
+}
+
+func (c *Client) doRequestOnce(ctx context.Context, method, endpoint string, query url.Values, body []byte, contentType string) (*BaseResponse, error) {
 	// Acquire concurrency slot
 	select {
 	case c.semaphore <- struct{}{}:
@@ -245,7 +267,11 @@ func (c *Client) DoRequest(ctx context.Context, method, endpoint string, query u
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)
+	var bodyReader io.Reader
+	if len(body) > 0 {
+		bodyReader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
