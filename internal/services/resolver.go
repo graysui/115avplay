@@ -20,14 +20,14 @@ var (
 )
 
 type PlaybackResolution struct {
-	SessionID   string
-	StreamURL   string
-	MovieCode   string
-	InfoHash    string
-	AssetID     string
-	Container   string
-	SizeBytes   int64
-	ExpiresAt   *string
+	SessionID    string
+	StreamURL    string
+	MovieCode    string
+	InfoHash     string
+	AssetID      string
+	Container    string
+	SizeBytes    int64
+	ExpiresAt    *string
 	IsDirectPlay bool
 }
 
@@ -81,8 +81,10 @@ func (r *Resolver) ResolvePlayback(ctx context.Context, movieCode, explicitSourc
 	// 1. Check binding
 	binding, err := r.assetRepo.GetActiveBinding(ctx, "115")
 	if err != nil || binding == nil {
+		r.logger.Warn("播放解析失败：未绑定 115 账号", "影片", movieCode)
 		return nil, fmt.Errorf("active 115 binding not found")
 	}
+	r.logger.Info("开始解析播放", "影片", movieCode, "指定版本", explicitSourceID, "用户", userID, "设备", deviceID)
 
 	var targetMagnet *models.Magnet
 	var targetAsset *models.CloudAsset
@@ -101,6 +103,7 @@ func (r *Resolver) ResolvePlayback(ctx context.Context, movieCode, explicitSourc
 			}
 		}
 		if targetMagnet == nil || targetMagnet.Enabled == 0 {
+			r.logger.Warn("播放解析失败：指定版本不存在或已禁用", "影片", movieCode, "版本", explicitSourceID)
 			return nil, ErrResourceUnavailable
 		}
 
@@ -118,12 +121,15 @@ func (r *Resolver) ResolvePlayback(ctx context.Context, movieCode, explicitSourc
 		// Default resolution using 3-tier hierarchy
 		resolved, err := r.magnetRepo.ResolveDefaultSource(ctx, movieCode, now)
 		if err != nil || resolved == nil || resolved.Magnet == nil {
+			r.logger.Warn("播放解析失败：无可用版本", "影片", movieCode)
 			return nil, ErrResourceUnavailable
 		}
 		tier = resolved.Tier
 		targetMagnet = resolved.Magnet
 		targetAsset = resolved.CloudAsset
 	}
+
+	r.logger.Info("播放版本选取完成", "影片", movieCode, "层级", fmt.Sprintf("Tier%d", tier), "info_hash", targetMagnet.InfoHash, "资源类型", targetMagnet.ResourceKind)
 
 	// 2. If Tier 1 or Tier 2 (Ready Asset available)
 	if (tier == 1 || tier == 2) && targetAsset != nil && IsAssetPlayable(targetAsset, nowTime) {
@@ -132,10 +138,10 @@ func (r *Resolver) ResolvePlayback(ctx context.Context, movieCode, explicitSourc
 
 	// 3. If Tier 3 (Cold transferable magnet): trigger transfer and wait up to streamWaitMs
 	if tier == 3 && targetMagnet != nil && (targetMagnet.ResourceKind == "btih" || targetMagnet.ResourceKind == "ed2k") {
-		r.logger.Info("initiating transfer for cold magnet", "movie_code", movieCode, "info_hash", targetMagnet.InfoHash)
+		r.logger.Info("冷资源：发起转存并等待就绪", "影片", movieCode, "info_hash", targetMagnet.InfoHash, "最长等待毫秒", r.streamWaitMs)
 		_, err := r.transferManager.StartTransfer(ctx, binding, targetMagnet)
 		if err != nil {
-			r.logger.Warn("start transfer error", "error", err)
+			r.logger.Warn("发起转存失败", "影片", movieCode, "错误", err.Error())
 		}
 
 		// Wait loop up to streamWaitMs
@@ -156,9 +162,11 @@ func (r *Resolver) ResolvePlayback(ctx context.Context, movieCode, explicitSourc
 		}
 
 		// Timed out: return 503 resource_preparing
+		r.logger.Warn("冷资源转存未在等待时间内就绪（返回准备中）", "影片", movieCode, "info_hash", targetMagnet.InfoHash)
 		return nil, ErrResourcePreparing
 	}
 
+	r.logger.Warn("播放解析失败：资源不可用", "影片", movieCode, "层级", tier)
 	return nil, ErrResourceUnavailable
 }
 
@@ -168,11 +176,13 @@ func (r *Resolver) createPlaySessionAndURL(ctx context.Context, magnet *models.M
 
 	// Fetch 115 download CDN URL
 	if asset.PickCode == nil || *asset.PickCode == "" {
+		r.logger.Warn("播放解析失败：资产缺少 pick_code", "影片", magnet.MovieCode, "资产", asset.ID)
 		return nil, fmt.Errorf("asset has no pick_code")
 	}
 
-	downURLInfo, err := r.c115Client.GetDownloadURL(ctx, *asset.PickCode)
+	downURLInfo, err := r.c115Client.GetDownloadURLAuto(ctx, *asset.PickCode)
 	if err != nil {
+		r.logger.Warn("播放解析失败：获取 115 直链失败", "影片", magnet.MovieCode, "错误", err.Error())
 		return nil, fmt.Errorf("get download url from 115: %w", err)
 	}
 
@@ -197,6 +207,15 @@ func (r *Resolver) createPlaySessionAndURL(ctx context.Context, magnet *models.M
 		container = *asset.Container
 	}
 
+	r.logger.Info("播放直链解析成功（302 直链）",
+		"影片", magnet.MovieCode,
+		"资产类型", asset.SourceType,
+		"文件", derefString(asset.FileName),
+		"容器", container,
+		"大小字节", downURLInfo.FileSize,
+		"会话", sessionID,
+	)
+
 	return &PlaybackResolution{
 		SessionID:    sessionID,
 		StreamURL:    downURLInfo.URL,
@@ -208,4 +227,11 @@ func (r *Resolver) createPlaySessionAndURL(ctx context.Context, magnet *models.M
 		ExpiresAt:    asset.ExpiresAt,
 		IsDirectPlay: true,
 	}, nil
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

@@ -35,7 +35,6 @@ type updateSettingsReq struct {
 	Secrets  map[string]secretActionReq `json:"secrets"`
 }
 
-
 // GetSettings handles GET /api/v1/settings.
 func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -52,6 +51,9 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	knownSecrets := map[string]bool{
 		"proxy_url":     true,
 		"alert_webhook": true,
+		"javdb_token":   true,
+		"javdb_cookie":  true,
+		"115_cookie":    true,
 	}
 
 	for k, s := range rawSettings {

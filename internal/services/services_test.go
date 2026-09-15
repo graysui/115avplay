@@ -238,8 +238,8 @@ func TestTreeScannerPermanentReconciliation(t *testing.T) {
 		t.Errorf("expected 1 valid video, 1 matched, 1 asset created, got %+v", stats)
 	}
 
-	// Verify magnet and asset exist
-	resourceKey := "115:binding_test_115:file_1001"
+	// Verify magnet and asset exist (resource key is pickcode-based now)
+	resourceKey := "115:binding_test_115:pick_1001"
 	asset, err := assetRepo.GetReadyAssetByResource(ctx, resourceKey, "binding_test_115", models.UTCNow())
 	if err != nil || asset == nil {
 		t.Fatalf("expected ready asset for scanned file, got nil")

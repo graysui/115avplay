@@ -80,31 +80,20 @@ func (h *ItemsHandlers) GetItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate SortBy whitelist: DateCreated, SortName, PremiereDate
+	// Emby clients send a wide variety of SortBy values (and comma-separated lists).
+	// Map every known field to a fixed, safe column expression; unknown values fall
+	// back to the default instead of erroring (real Emby/Jellyfin ignore them too).
 	sortColumn := "m.created_at"
-	defaultDesc := true
-	if sortByRaw != "" {
-		switch strings.ToLower(sortByRaw) {
-		case "datecreated":
-			sortColumn = "m.created_at"
-			defaultDesc = true
-		case "sortname":
-			sortColumn = "COALESCE(m.title_zh, m.title)"
-			defaultDesc = false
-		case "premieredate":
-			sortColumn = "COALESCE(m.release_date, m.publish_date, m.first_seen_at)"
-			defaultDesc = true
-		default:
-			http.Error(w, `{"error":"invalid sortby field"}`, http.StatusBadRequest)
-			return
-		}
-	}
-
 	sortDirection := "DESC"
-	if defaultDesc {
-		sortDirection = "DESC"
-	} else {
-		sortDirection = "ASC"
+	if sortByRaw != "" {
+		for _, raw := range strings.Split(sortByRaw, ",") {
+			col, dir, ok := mapEmbySortField(strings.TrimSpace(raw))
+			if ok {
+				sortColumn = col
+				sortDirection = dir
+				break
+			}
+		}
 	}
 	if strings.EqualFold(sortOrderRaw, "ascending") {
 		sortDirection = "ASC"
@@ -132,6 +121,19 @@ func (h *ItemsHandlers) GetItems(w http.ResponseWriter, r *http.Request) {
 			whereClauses = append(whereClauses, "m.category = 'FC2'")
 		case "lib_domestic":
 			whereClauses = append(whereClauses, "m.category = '国产'")
+		case "lib_rank_weekly", "lib_rank_monthly", "lib_rank_top250":
+			// Ranking board virtual libraries: list ranking entries that exist in the
+			// local database AND have at least one playable resource. The board is
+			// populated by the rankings sync (which also backfills the database).
+			board := map[string]string{
+				"lib_rank_weekly":  "weekly",
+				"lib_rank_monthly": "monthly",
+				"lib_rank_top250":  "top250",
+			}[parentID]
+			whereClauses = append(whereClauses,
+				fmt.Sprintf("m.code IN (SELECT code FROM ranking_entries WHERE board = '%s')", board))
+			whereClauses = append(whereClauses,
+				"EXISTS (SELECT 1 FROM offline_magnets om WHERE om.movie_code = m.code AND om.enabled = 1)")
 		}
 	}
 
@@ -679,5 +681,30 @@ func buildFullItemDTO(m *models.Movie, p *models.UserProgress, serverID, prefix 
 		ImageTags:         &ImageTags{Primary: "img_" + itemID, Backdrop: "bd_" + itemID},
 		BackdropImageTags: []string{"bd_" + itemID},
 		UserData:          userData,
+	}
+}
+
+// mapEmbySortField maps an Emby/Jellyfin SortBy value to a fixed SQL column
+// expression and default direction. The returned expression is never built from
+// user input, so it is injection-safe. Unknown fields return ok=false so the
+// caller can fall back to the default sort order (matching Emby behaviour).
+func mapEmbySortField(field string) (column string, direction string, ok bool) {
+	switch strings.ToLower(field) {
+	case "datecreated", "dateadded", "datemodified", "startdate", "airtime":
+		return "m.created_at", "DESC", true
+	case "sortname", "sortnameordate", "seriessortname":
+		return "COALESCE(m.title_zh, m.title)", "ASC", true
+	case "premieredate", "productionyear":
+		return "COALESCE(m.release_date, m.publish_date, m.first_seen_at)", "DESC", true
+	case "communityrating", "criticrating", "officialrating":
+		return "m.score", "DESC", true
+	case "runtime":
+		return "m.runtime_ticks", "DESC", true
+	case "random":
+		return "RANDOM()", "ASC", true
+	case "dateplayed", "playcount", "isplayed":
+		return "m.created_at", "DESC", true
+	default:
+		return "", "", false
 	}
 }

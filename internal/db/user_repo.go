@@ -266,6 +266,26 @@ func (r *UserRepo) ListUsers(ctx context.Context) ([]models.User, error) {
 	return users, err
 }
 
+// GetFirstEnabledUser returns the oldest enabled user. It is used as the fallback
+// identity for anonymous Emby media/image requests (Emby clients often omit the
+// token on image and stream endpoints).
+func (r *UserRepo) GetFirstEnabledUser(ctx context.Context) (*models.User, error) {
+	var u models.User
+	err := r.db.ExecRead(ctx, func(database *sql.DB) error {
+		return database.QueryRowContext(ctx, `
+			SELECT id, username, password_hash, is_admin, enabled, must_change_password, created_at, updated_at
+			FROM users WHERE enabled = 1 ORDER BY created_at ASC LIMIT 1;
+		`).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.IsAdmin, &u.Enabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 // CreateUser creates a new user.
 func (r *UserRepo) CreateUser(ctx context.Context, u *models.User) error {
 	now := models.UTCNow()
@@ -322,4 +342,3 @@ func (r *UserRepo) CountEnabledAdmins(ctx context.Context) (int, error) {
 	})
 	return count, err
 }
-

@@ -1,0 +1,17 @@
+# 构建产物与本地数据，避免进入镜像构建上下文
+.git
+.gitignore
+data/
+bin/
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.key
+web/node_modules/
+.env
+.env.*
+docs/
+specs/
+references/
+tools/

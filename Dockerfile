@@ -1,8 +1,12 @@
 # Multi-stage Docker build for MediaVault
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates tzdata
+
+# 国内环境使用可访问的 Go 模块代理（可通过 --build-arg GOPROXY=... 覆盖）
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
 
 COPY go.mod go.sum ./
 RUN go mod download

@@ -318,8 +318,8 @@ func TestViewsAndMediaFolders(t *testing.T) {
 		t.Fatalf("unmarshal views: %v", err)
 	}
 
-	if resp.TotalRecordCount != 6 || len(resp.Items) != 6 {
-		t.Errorf("expected 6 fixed libraries, got %d", resp.TotalRecordCount)
+	if resp.TotalRecordCount != 9 || len(resp.Items) != 9 {
+		t.Errorf("expected 9 fixed libraries (3 ranking + 6 category), got %d", resp.TotalRecordCount)
 	}
 
 	// GET /users/{uid}/views
@@ -629,8 +629,8 @@ func TestSearchAndSorting(t *testing.T) {
 		t.Errorf("expected 0 results, got %d", noMatchResp.TotalRecordCount)
 	}
 
-	// 3. Valid SortBy: SortName, PremiereDate
-	for _, sortField := range []string{"SortName", "PremiereDate"} {
+	// 3. Valid SortBy: SortName, PremiereDate, plus fields sent by VidHub/Infuse
+	for _, sortField := range []string{"SortName", "PremiereDate", "Random", "DateCreated,SortName", "CommunityRating"} {
 		reqSort := httptest.NewRequest("GET", "/items?SortBy="+sortField+"&SortOrder=Ascending", nil)
 		reqSort.Header.Set("X-Emby-Token", token)
 		recSort := httptest.NewRecorder()
@@ -640,13 +640,13 @@ func TestSearchAndSorting(t *testing.T) {
 		}
 	}
 
-	// 4. Invalid SortBy -> 400 Bad Request
+	// 4. Unknown SortBy falls back to the default order (no 400, no injection).
 	reqBadSort := httptest.NewRequest("GET", "/items?SortBy=MaliciousSQLInjection", nil)
 	reqBadSort.Header.Set("X-Emby-Token", token)
 	recBadSort := httptest.NewRecorder()
 	server.ServeHTTP(recBadSort, reqBadSort)
-	if recBadSort.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 on invalid SortBy, got %d", recBadSort.Code)
+	if recBadSort.Code != http.StatusOK {
+		t.Errorf("expected 200 (fallback) on unknown SortBy, got %d", recBadSort.Code)
 	}
 }
 

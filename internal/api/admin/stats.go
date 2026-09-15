@@ -28,7 +28,6 @@ func NewStatsHandler(database *db.DB, settingsRepo *db.SettingsRepo, appConfig *
 	}
 }
 
-
 type statsResponse struct {
 	Completeness completenessStats `json:"completeness"`
 	Policy       policyStats       `json:"policy"`
@@ -63,6 +62,7 @@ type mediaStats struct {
 	ChineseSubMagnets int   `json:"chinese_sub_magnets"`
 	FourKMagnets      int   `json:"four_k_magnets"`
 	PermanentAssets   int   `json:"permanent_assets"`
+	PermanentMovies   int   `json:"permanent_movies"`
 	TemporaryAssets   int   `json:"temporary_assets"`
 	TotalBytes        int64 `json:"total_bytes"`
 }
@@ -125,6 +125,14 @@ func (h *StatsHandler) GetStats(c *gin.Context) {
 				COALESCE(SUM(CASE WHEN state = 'ready' THEN size_bytes ELSE 0 END), 0)
 			FROM cloud_assets;
 		`, now).Scan(&res.Media.PermanentAssets, &res.Media.TemporaryAssets, &res.Media.TotalBytes)
+
+		// 4b. Permanent library movie count (distinct movies with a ready permanent asset).
+		_ = d.QueryRowContext(c.Request.Context(), `
+			SELECT COUNT(DISTINCT m.movie_code)
+			FROM cloud_assets ca
+			JOIN offline_magnets m ON m.info_hash = ca.resource_key
+			WHERE ca.source_type = 'permanent' AND ca.state = 'ready';
+		`).Scan(&res.Media.PermanentMovies)
 
 		// 5. Job stats: pending counts schedulable records (queued or ready retry_wait)
 		_ = d.QueryRowContext(c.Request.Context(), `
@@ -224,11 +232,10 @@ func (h *StatsHandler) GetSystemStatus(c *gin.Context) {
 			"sufficient":     freeBytes >= minFreeBytes,
 		},
 		"empty_matrix": gin.H{
-			"is_empty":     isEmptyMatrix,
-			"movie_count":  movieCount,
-			"asset_count":  assetCount,
-			"job_count":    jobCount,
+			"is_empty":    isEmptyMatrix,
+			"movie_count": movieCount,
+			"asset_count": assetCount,
+			"job_count":   jobCount,
 		},
 	})
 }
-

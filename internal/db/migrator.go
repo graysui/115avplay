@@ -70,11 +70,11 @@ func (m *Migrator) MigrateLegacyV0(ctx context.Context) (*SchemaMetaInfo, error)
 		}
 
 		// A. Rename old tables to temporary staging tables
-		if _, err := tx.ExecContext(ctx, `
-			ALTER TABLE offline_movies RENAME TO _legacy_movies;
-			ALTER TABLE offline_magnets RENAME TO _legacy_magnets;
-		`); err != nil {
-			return fmt.Errorf("rename legacy tables: %w", err)
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE offline_movies RENAME TO _legacy_movies;`); err != nil {
+			return fmt.Errorf("rename legacy movies table: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE offline_magnets RENAME TO _legacy_magnets;`); err != nil {
+			return fmt.Errorf("rename legacy magnets table: %w", err)
 		}
 
 		// B. Apply TargetSchemaDDL
@@ -99,12 +99,13 @@ func (m *Migrator) MigrateLegacyV0(ctx context.Context) (*SchemaMetaInfo, error)
 			return fmt.Errorf("migrate magnets: %w", err)
 		}
 
-		// E. Drop temporary legacy tables
-		if _, err := tx.ExecContext(ctx, `
-			DROP TABLE _legacy_movies;
-			DROP TABLE _legacy_magnets;
-		`); err != nil {
-			return fmt.Errorf("drop legacy tables: %w", err)
+		// E. Drop temporary legacy tables (child table first: _legacy_magnets
+		// references _legacy_movies, so it must be dropped before its parent).
+		if _, err := tx.ExecContext(ctx, `DROP TABLE _legacy_magnets;`); err != nil {
+			return fmt.Errorf("drop _legacy_magnets: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DROP TABLE _legacy_movies;`); err != nil {
+			return fmt.Errorf("drop _legacy_movies: %w", err)
 		}
 
 		// F. Record schema metadata

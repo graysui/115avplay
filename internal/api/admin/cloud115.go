@@ -36,11 +36,13 @@ func NewCloud115Handler(
 
 // GetStatus handles GET /api/v1/115/status.
 func (h *Cloud115Handler) GetStatus(c *gin.Context) {
+	h.resolveCredentials(c)
 	binding, err := h.assetRepo.GetActiveBinding(c.Request.Context(), "115")
 	if err != nil || binding == nil {
 		api.SendSuccess(c, gin.H{
 			"configured": false,
 			"provider":   "115",
+			"app_id_set": h.authClient != nil && h.authClient.ClientID() != "",
 		})
 		return
 	}
@@ -52,13 +54,37 @@ func (h *Cloud115Handler) GetStatus(c *gin.Context) {
 		"binding_id":       binding.ID,
 		"enabled":          binding.Enabled == 1,
 		"updated_at":       binding.UpdatedAt,
+		"app_id_set":       h.authClient != nil && h.authClient.ClientID() != "",
 	})
+}
+
+// resolveCredentials reads the 115 OpenAPI App ID/Secret from environment (highest
+// priority) or from the persisted system settings, and applies them to the live client.
+func (h *Cloud115Handler) resolveCredentials(c *gin.Context) {
+	if h.authClient == nil {
+		return
+	}
+	ctx := c.Request.Context()
+
+	clientID := ""
+	if h.appConfig != nil {
+		clientID = h.appConfig.Client115ID
+	}
+
+	if clientID == "" {
+		if s, err := h.settingsRepo.GetSetting(ctx, "115_client_id"); err == nil && s != nil && s.Value != nil {
+			clientID = *s.Value
+		}
+	}
+
+	h.authClient.SetClientID(clientID)
 }
 
 // StartDeviceAuth handles POST /api/v1/115/auth/device.
 func (h *Cloud115Handler) StartDeviceAuth(c *gin.Context) {
-	if h.authClient == nil {
-		api.SendError(c, http.StatusServiceUnavailable, "auth_client_unavailable", "115 auth client not configured")
+	h.resolveCredentials(c)
+	if h.authClient == nil || h.authClient.ClientID() == "" {
+		api.SendError(c, http.StatusServiceUnavailable, "auth_client_unavailable", "115 App ID 未配置：请在下方“115 开放平台应用”填写 App ID 并保存，或设置 MV_115_CLIENT_ID 环境变量")
 		return
 	}
 
@@ -78,8 +104,9 @@ type pollDeviceTokenReq struct {
 
 // PollDeviceToken handles POST /api/v1/115/auth/poll.
 func (h *Cloud115Handler) PollDeviceToken(c *gin.Context) {
-	if h.authClient == nil {
-		api.SendError(c, http.StatusServiceUnavailable, "auth_client_unavailable", "115 auth client not configured")
+	h.resolveCredentials(c)
+	if h.authClient == nil || h.authClient.ClientID() == "" {
+		api.SendError(c, http.StatusServiceUnavailable, "auth_client_unavailable", "115 App ID 未配置：请先配置 MV_115_CLIENT_ID")
 		return
 	}
 
@@ -94,6 +121,13 @@ func (h *Cloud115Handler) PollDeviceToken(c *gin.Context) {
 	if err != nil {
 		api.SendError(c, http.StatusBadRequest, "poll_failed", err.Error())
 		return
+	}
+
+	// The token response sometimes omits the user id; fetch it from the profile API.
+	if tokenData.UserID == "" {
+		if info, ierr := h.authClient.GetUserInfo(ctx); ierr == nil && info != nil && info.UserID != "" {
+			tokenData.UserID = info.UserID
+		}
 	}
 
 	// Persist binding and encrypted tokens

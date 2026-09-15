@@ -58,7 +58,9 @@ type Downloader struct {
 
 func NewDownloader(httpClient *http.Client, apiURL string, mirrors []string, maxBytes int64, destDir string) *Downloader {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 60 * time.Second}
+		// AVDB release archives can be large and GitHub can be slow, so allow a
+		// long read timeout (the ingestion job renews its lease meanwhile).
+		httpClient = &http.Client{Timeout: 30 * time.Minute}
 	}
 	if apiURL == "" {
 		apiURL = "https://api.github.com/repos/li-peifeng/AVdb-Only/releases/latest"

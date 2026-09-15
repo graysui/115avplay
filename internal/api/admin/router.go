@@ -23,6 +23,8 @@ func RegisterAdminRoutes(
 	appConfig *config.AppConfig,
 	transferManager *services.TransferManager,
 	auth115 *client115.AuthClient,
+	runner TaskRunner,
+	javdbAuth JavDBAuth,
 ) {
 	authHandler := NewAuthHandler(userRepo)
 	statsHandler := NewStatsHandler(database, settingsRepo, appConfig)
@@ -30,10 +32,13 @@ func RegisterAdminRoutes(
 	moviesHandler := NewMoviesHandler(movieRepo, magnetRepo, assetRepo, transferManager)
 	librariesHandler := NewLibrariesHandler(libraryRepo)
 	usersHandler := NewUsersHandler(userRepo)
-	tasksHandler := NewTasksHandler(jobRepo)
-	scraperHandler := NewScraperHandler(database, jobRepo)
+	tasksHandler := NewTasksHandler(jobRepo, runner)
+	scraperHandler := NewScraperHandler(database, jobRepo, runner)
 	schedulesHandler := NewSchedulesHandler(settingsRepo)
 	alertsHandler := NewAlertsHandler(settingsRepo)
+	systemHandler := NewSystemHandler(database)
+	javdbHandler := NewJavDBHandler(javdbAuth, settingsRepo)
+	imageProxyHandler := NewImageProxyHandler(appConfig, movieRepo)
 	cloud115Handler := NewCloud115Handler(assetRepo, settingsRepo, appConfig, auth115)
 
 	// Public Auth
@@ -104,6 +109,17 @@ func RegisterAdminRoutes(
 		protected.GET("/115/status", cloud115Handler.GetStatus)
 		protected.POST("/115/auth/device", cloud115Handler.StartDeviceAuth)
 		protected.POST("/115/auth/poll", cloud115Handler.PollDeviceToken)
+
+		// System / Database schema
+		protected.GET("/system/schema", systemHandler.GetSchema)
+
+		// JavDB account session (optional)
+		protected.GET("/javdb/status", javdbHandler.Status)
+		protected.POST("/javdb/login", javdbHandler.Login)
+		protected.POST("/javdb/logout", javdbHandler.Logout)
+
+		// Image proxy (covers/posters)
+		protected.GET("/images/proxy", imageProxyHandler.Proxy)
 
 		// WebSocket Log Stream
 		protected.GET("/ws/logs", LogsWebSocketHandler)

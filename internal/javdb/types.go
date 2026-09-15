@@ -51,7 +51,8 @@ type RankingMovieDTO struct {
 }
 
 // CalculateCompleteness determines is_enriched and whether all core fields are present.
-// Core fields: Title (TitleZH or OfficialTitle or Title), DescriptionZH, and CoverURL.
+// JavDB only provides the Japanese title, cover, score, actors and tags; it never
+// provides Chinese titles/descriptions, so those must NOT be treated as required.
 func CalculateCompleteness(d *MovieDetailDTO) (isEnriched int, isSuccess bool) {
 	hasTitle := false
 	if d.TitleZH != nil && strings.TrimSpace(*d.TitleZH) != "" {
@@ -62,14 +63,15 @@ func CalculateCompleteness(d *MovieDetailDTO) (isEnriched int, isSuccess bool) {
 		hasTitle = true
 	}
 
-	hasDesc := d.DescriptionZH != nil && strings.TrimSpace(*d.DescriptionZH) != ""
 	hasCover := d.CoverURL != nil && strings.TrimSpace(*d.CoverURL) != ""
+	hasDesc := d.DescriptionZH != nil && strings.TrimSpace(*d.DescriptionZH) != ""
 
-	if hasTitle && hasDesc && hasCover {
-		return 1, true // All fields present
+	// Complete = title + cover (what the data source can provide).
+	if hasTitle && hasCover {
+		return 1, true
 	}
 
-	if hasTitle || hasDesc || hasCover || len(d.Actors) > 0 || len(d.Tags) > 0 || d.Score != nil {
+	if hasTitle || hasCover || hasDesc || len(d.Actors) > 0 || len(d.Tags) > 0 || d.Score != nil {
 		return 3, false // Partial
 	}
 

@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,11 @@ type AppConfig struct {
 	PublicURL      string
 	TrustedProxies []string
 	LogLevel       string
+
+	// 115 OpenAPI application ID (https://open.115.com).
+	// Required for the OAuth device-code / QR-code binding flow.
+	// Note: the device flow only needs client_id; no client secret is used.
+	Client115ID string
 
 	MasterKey *MasterKey
 
@@ -49,6 +55,8 @@ func LoadFromEnv() (*AppConfig, error) {
 	publicURL := strings.TrimRight(os.Getenv("MV_PUBLIC_URL"), "/")
 	logLevel := strings.ToUpper(getEnvOrDefault("MV_LOG_LEVEL", "INFO"))
 
+	client115ID := os.Getenv("MV_115_CLIENT_ID")
+
 	var trustedProxies []string
 	if rawProxies := os.Getenv("MV_TRUSTED_PROXIES"); rawProxies != "" {
 		parts := strings.Split(rawProxies, ",")
@@ -72,7 +80,8 @@ func LoadFromEnv() (*AppConfig, error) {
 			// Skip startup-specific env vars
 			switch key {
 			case "MV_DATA_DIR", "MV_MASTER_KEY_FILE", "MV_ADMIN_PASSWORD",
-				"MV_LISTEN", "MV_PUBLIC_URL", "MV_TRUSTED_PROXIES", "MV_LOG_LEVEL":
+				"MV_LISTEN", "MV_PUBLIC_URL", "MV_TRUSTED_PROXIES", "MV_LOG_LEVEL",
+				"MV_115_CLIENT_ID", "MV_115_CLIENT_SECRET":
 				continue
 			default:
 				settingKey := strings.ToLower(strings.TrimPrefix(key, "MV_"))
@@ -89,6 +98,7 @@ func LoadFromEnv() (*AppConfig, error) {
 		PublicURL:      publicURL,
 		TrustedProxies: trustedProxies,
 		LogLevel:       logLevel,
+		Client115ID:    client115ID,
 		EnvOverrides:   overrides,
 	}
 
@@ -148,7 +158,18 @@ func (c *AppConfig) RemoveBootstrapPasswordFile() error {
 
 // SettingValidator checks setting types and boundaries according to CONFIGURATION.md.
 func ValidateSetting(key, val string) error {
+	// An empty value means "not set" (the UI may submit blank inputs); accept it
+	// and let consumers fall back to their built-in defaults.
+	if strings.TrimSpace(val) == "" {
+		return nil
+	}
+
 	switch key {
+	case "existing_scan_cids":
+		var roots []string
+		if err := json.Unmarshal([]byte(val), &roots); err != nil {
+			return errors.New("existing_scan_cids must be a JSON array of CID strings, e.g. [\"123\"]")
+		}
 	case "temp_transfer_cid":
 		if val == "0" {
 			return errors.New("temp_transfer_cid cannot be 0")

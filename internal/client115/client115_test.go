@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -93,18 +94,17 @@ func setupMock115Server() (*httptest.Server, *int) {
 				}`),
 			})
 
-		case "/open/offline/add_task_bt":
-			_ = json.NewEncoder(w).Encode(BaseResponse{
-				State: true,
-				Code:  0,
-				Data:  json.RawMessage(`{"info_hash":"BTHASH123"}`),
-			})
-
 		case "/open/offline/add_task_urls":
+			_ = r.ParseForm()
+			urls := r.FormValue("urls")
+			hash := "ED2KHASH456"
+			if idx := strings.Index(urls, "btih:"); idx >= 0 {
+				hash = urls[idx+5:]
+			}
 			_ = json.NewEncoder(w).Encode(BaseResponse{
 				State: true,
 				Code:  0,
-				Data:  json.RawMessage(`{"result":[{"info_hash":"ED2KHASH456","state":true,"errcode":0}]}`),
+				Data:  json.RawMessage(fmt.Sprintf(`[{"state":true,"code":0,"message":"","info_hash":"%s","url":"%s"}]`, hash, urls)),
 			})
 
 		case "/open/offline/get_task_list":
@@ -168,7 +168,7 @@ func Test115ClientAuthAndSingleFlight(t *testing.T) {
 		t.Fatalf("NewClient failed: %v", err)
 	}
 
-	auth := NewAuthClient(client, "client_id_test", "secret_test")
+	auth := NewAuthClient(client, "client_id_test")
 
 	ctx := context.Background()
 
@@ -179,6 +179,10 @@ func Test115ClientAuthAndSingleFlight(t *testing.T) {
 	}
 	if deviceAuth.DeviceCode != "dev_123" {
 		t.Errorf("expected device_code dev_123, got %s", deviceAuth.DeviceCode)
+	}
+	// The mock returns a non-image qrcode URL, so the client must render a QR data URI.
+	if !strings.HasPrefix(deviceAuth.QRCodeDataURI, "data:image/png;base64,") {
+		t.Errorf("expected generated QR data URI, got %s", deviceAuth.QRCodeDataURI)
 	}
 
 	// 2. Poll Token

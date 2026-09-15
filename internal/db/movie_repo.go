@@ -347,3 +347,57 @@ func (r *MovieRepo) SoftDeleteMovie(ctx context.Context, code string) error {
 		return err
 	})
 }
+
+// BackfillCoversFromPreview fills cover_url from the first entry of the offline
+// database's preview_images (comma-separated) for movies JavDB could not cover,
+// e.g. FC2/素人 and 国产 categories which are never scraped. Idempotent.
+func (r *MovieRepo) BackfillCoversFromPreview(ctx context.Context) (int, error) {
+	affected := 0
+	err := r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE offline_movies
+			SET cover_url = CASE
+					WHEN instr(preview_images, ',') > 0
+						THEN substr(preview_images, 1, instr(preview_images, ',') - 1)
+					ELSE preview_images
+				END
+			WHERE deleted_at IS NULL
+			  AND (cover_url IS NULL OR cover_url = '')
+			  AND preview_images IS NOT NULL AND preview_images != '' AND preview_images != '[]'
+			  AND preview_images LIKE 'http%';
+		`)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		affected = int(n)
+		return nil
+	})
+	return affected, err
+}
+
+// MarkLegacyCompleteAsScraped marks migrated legacy movies that already have
+// offline metadata (title + cover) as successfully scraped, so the huge legacy
+// library is not queued for JavDB. Newly ingested movies remain scrape_status
+// 'idle' and will be scraped.
+func (r *MovieRepo) MarkLegacyCompleteAsScraped(ctx context.Context) (int, error) {
+	affected := 0
+	err := r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE offline_movies
+			SET scrape_status = 'success', is_enriched = 1, updated_at = updated_at
+			WHERE deleted_at IS NULL
+			  AND scrape_status = 'idle'
+			  AND scrape_policy != 'exempt'
+			  AND cover_url IS NOT NULL AND cover_url != ''
+			  AND (title IS NOT NULL AND title != '');
+		`)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		affected = int(n)
+		return nil
+	})
+	return affected, err
+}

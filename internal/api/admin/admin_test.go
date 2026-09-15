@@ -24,7 +24,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-
 func setupTestServer(t *testing.T) (*gin.Engine, *db.DB, *config.AppConfig, string) {
 	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
@@ -85,7 +84,7 @@ func setupTestServer(t *testing.T) (*gin.Engine, *db.DB, *config.AppConfig, stri
 
 	engine := gin.New()
 	rg := engine.Group("/api/v1")
-	admin.RegisterAdminRoutes(rg, userRepo, settingsRepo, movieRepo, magnetRepo, assetRepo, libraryRepo, jobRepo, database, appConfig, nil, nil)
+	admin.RegisterAdminRoutes(rg, userRepo, settingsRepo, movieRepo, magnetRepo, assetRepo, libraryRepo, jobRepo, database, appConfig, nil, nil, nil, nil)
 
 	return engine, database, appConfig, "admin123456"
 }

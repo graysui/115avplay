@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ type PlaybackHandlers struct {
 	assetRepo    *db.AssetRepo
 	progressRepo *db.ProgressRepo
 	resolver     *services.Resolver
+	logger       *slog.Logger
 }
 
 func NewPlaybackHandlers(
@@ -34,7 +36,11 @@ func NewPlaybackHandlers(
 	assetRepo *db.AssetRepo,
 	progressRepo *db.ProgressRepo,
 	resolver *services.Resolver,
+	logger *slog.Logger,
 ) *PlaybackHandlers {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &PlaybackHandlers{
 		serverID:     serverID,
 		database:     database,
@@ -43,6 +49,7 @@ func NewPlaybackHandlers(
 		assetRepo:    assetRepo,
 		progressRepo: progressRepo,
 		resolver:     resolver,
+		logger:       logger,
 	}
 }
 
@@ -66,6 +73,7 @@ func (h *PlaybackHandlers) GetPlaybackInfo(w http.ResponseWriter, r *http.Reques
 
 	movie, err := h.movieRepo.GetMovie(r.Context(), movieCode)
 	if err != nil || movie == nil || movie.DeletedAt != nil {
+		h.logger.Warn("播放信息请求失败：影片不存在", "影片", movieCode)
 		http.Error(w, `{"error":"item not found"}`, http.StatusNotFound)
 		return
 	}
@@ -117,7 +125,6 @@ func (h *PlaybackHandlers) GetPlaybackInfo(w http.ResponseWriter, r *http.Reques
 	// Build sources
 	magnets, _ := h.magnetRepo.ListMagnetsByMovie(r.Context(), movieCode)
 	var sources []MediaSourceDTO
-	prefix := PrefixFromContext(r.Context())
 	nowTime := time.Now().UTC()
 
 	binding, _ := h.assetRepo.GetActiveBinding(r.Context(), "115")
@@ -135,7 +142,9 @@ func (h *PlaybackHandlers) GetPlaybackInfo(w http.ResponseWriter, r *http.Reques
 		}
 
 		sID := EncodeSourceID(m.InfoHash)
-		streamURL := fmt.Sprintf("%s/videos/%s/stream?MediaSourceId=%s", prefix, rawID, sID)
+		// Relative to the Emby server base URL. Including the "/emby" prefix here
+		// causes clients (e.g. Hills) to request /emby/emby/videos/... .
+		streamURL := fmt.Sprintf("/videos/%s/stream?MediaSourceId=%s", rawID, sID)
 
 		playable := false
 		if bindingID != "" {
@@ -180,6 +189,7 @@ func (h *PlaybackHandlers) GetPlaybackInfo(w http.ResponseWriter, r *http.Reques
 		MediaSources:  sources,
 		PlaySessionId: sessionID,
 	})
+	h.logger.Info("播放信息协商完成", "影片", movieCode, "用户", user.ID, "会话", sessionID, "版本数", len(sources))
 }
 
 // StreamHandler handles GET and HEAD /videos/{id}/stream and /videos/{id}/stream.{container}.
@@ -211,6 +221,7 @@ func (h *PlaybackHandlers) StreamHandler(w http.ResponseWriter, r *http.Request,
 	if r.Method == "HEAD" {
 		binding, _ := h.assetRepo.GetActiveBinding(r.Context(), "115")
 		if binding == nil {
+			h.logger.Warn("流媒体 HEAD 失败：未绑定 115 账号", "影片", movieCode)
 			http.Error(w, `{"error":"binding not available"}`, http.StatusServiceUnavailable)
 			return
 		}
@@ -229,6 +240,7 @@ func (h *PlaybackHandlers) StreamHandler(w http.ResponseWriter, r *http.Request,
 			// Ready: return 302 redirect header
 			res, err := h.resolver.ResolvePlayback(r.Context(), movieCode, explicitInfoHash, user.ID, deviceID)
 			if err == nil && res != nil {
+				h.logger.Info("流媒体 HEAD 就绪（302）", "影片", movieCode, "版本", explicitInfoHash)
 				w.Header().Set("Location", res.StreamURL)
 				w.Header().Set("Cache-Control", "no-store")
 				w.WriteHeader(http.StatusFound)
@@ -237,6 +249,7 @@ func (h *PlaybackHandlers) StreamHandler(w http.ResponseWriter, r *http.Request,
 		}
 
 		// Cold/not ready: HEAD returns 503
+		h.logger.Info("流媒体 HEAD 未就绪（503，等待转存）", "影片", movieCode, "版本", explicitInfoHash)
 		w.Header().Set("Retry-After", "5")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
@@ -246,6 +259,7 @@ func (h *PlaybackHandlers) StreamHandler(w http.ResponseWriter, r *http.Request,
 	res, err := h.resolver.ResolvePlayback(r.Context(), movieCode, explicitInfoHash, user.ID, deviceID)
 	if err != nil {
 		if errors.Is(err, services.ErrResourcePreparing) {
+			h.logger.Info("流媒体 GET：资源准备中（503）", "影片", movieCode, "版本", explicitInfoHash)
 			w.Header().Set("Retry-After", "5")
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -256,11 +270,13 @@ func (h *PlaybackHandlers) StreamHandler(w http.ResponseWriter, r *http.Request,
 			})
 			return
 		}
+		h.logger.Warn("流媒体 GET 失败：资源不可用（404）", "影片", movieCode, "版本", explicitInfoHash, "错误", err.Error())
 		http.Error(w, `{"error":"resource unavailable"}`, http.StatusNotFound)
 		return
 	}
 
 	// 302 Redirect to CDN download URL
+	h.logger.Info("流媒体 GET：302 跳转到 115 CDN", "影片", movieCode, "版本", res.InfoHash, "资产类型", res.AssetID)
 	w.Header().Set("Location", res.StreamURL)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusFound)

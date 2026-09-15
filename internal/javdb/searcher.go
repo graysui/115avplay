@@ -151,7 +151,7 @@ func (s *SearchService) Search(ctx context.Context, keyword string, limit, offse
 		return &SearchResult{Movies: []models.Movie{}, Cold: true}, nil
 
 	case err := <-errCh:
-		s.logger.Warn("online search scrape failed", "code", code, "error", err)
+		s.logger.Warn("online search scrape failed", "code", code, "error", err.Error())
 		return &SearchResult{Movies: []models.Movie{}}, nil
 	}
 }

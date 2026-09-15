@@ -2,12 +2,15 @@ package emby
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"mediavault/internal/db"
+	"mediavault/internal/models"
 	"mediavault/internal/services"
 
 	"github.com/google/uuid"
@@ -61,7 +64,7 @@ func NewServer(
 	authHandlers := NewAuthHandlers(serverID, baseURL, userRepo)
 	viewsHandlers := NewViewsHandlers(serverID, libraryRepo)
 	itemsHandlers := NewItemsHandlers(serverID, database, movieRepo, magnetRepo, assetRepo, progressRepo)
-	playbackHandlers := NewPlaybackHandlers(serverID, database, movieRepo, magnetRepo, assetRepo, progressRepo, resolver)
+	playbackHandlers := NewPlaybackHandlers(serverID, database, movieRepo, magnetRepo, assetRepo, progressRepo, resolver, logger)
 	imageHandlers := NewImageHandlers(cacheDir, movieRepo)
 
 	return &Server{
@@ -97,6 +100,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	method := r.Method
 	parts := strings.Split(strings.Trim(normPath, "/"), "/")
 
+	// Public media routes: Emby clients routinely fetch item images and video
+	// streams without a token (images are public in Emby; stream clients rely on
+	// the server being pre-authorized on the LAN).
+	if method == "GET" || method == "HEAD" {
+		if len(parts) >= 4 && parts[0] == "items" && parts[2] == "images" {
+			s.images.ServeItemImage(w, r, parts[1], parts[3])
+			return
+		}
+		if len(parts) >= 3 && parts[0] == "videos" && strings.HasPrefix(parts[2], "stream") {
+			s.serveStreamOptionalAuth(w, r, parts[1])
+			return
+		}
+	}
+
 	// Public routes
 	if normPath == "/system/info/public" && method == "GET" {
 		s.authHandlers.GetPublicSystemInfo(w, r)
@@ -115,6 +132,34 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	AuthMiddleware(s.userRepo, func(w http.ResponseWriter, r *http.Request) {
 		s.dispatchProtected(w, r, method, normPath, parts)
 	})(w, r)
+}
+
+// serveStreamOptionalAuth serves a video stream, accepting either a valid Emby
+// token or falling back to the first enabled user (many players omit the token
+// on media requests).
+func (s *Server) serveStreamOptionalAuth(w http.ResponseWriter, r *http.Request, itemID string) {
+	user := s.resolveOptionalUser(r)
+	if user == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	ctx := context.WithValue(r.Context(), userContextKey, user)
+	s.playback.StreamHandler(w, r.WithContext(ctx), itemID)
+}
+
+// resolveOptionalUser resolves the caller from the token when present, otherwise
+// falls back to the first enabled user so anonymous media requests still work.
+func (s *Server) resolveOptionalUser(r *http.Request) *models.User {
+	if token, err := ExtractEmbyToken(r); err == nil && token != "" {
+		hasher := sha256.New()
+		hasher.Write([]byte(token))
+		_, user, serr := s.userRepo.GetSessionByTokenHash(r.Context(), hex.EncodeToString(hasher.Sum(nil)), "emby", models.UTCNow())
+		if serr == nil && user != nil && user.Enabled == 1 {
+			return user
+		}
+	}
+	user, _ := s.userRepo.GetFirstEnabledUser(r.Context())
+	return user
 }
 
 func (s *Server) dispatchProtected(w http.ResponseWriter, r *http.Request, method, normPath string, parts []string) {

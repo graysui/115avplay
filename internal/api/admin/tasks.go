@@ -15,10 +15,11 @@ import (
 
 type TasksHandler struct {
 	jobRepo *db.JobRepo
+	runner  TaskRunner
 }
 
-func NewTasksHandler(jobRepo *db.JobRepo) *TasksHandler {
-	return &TasksHandler{jobRepo: jobRepo}
+func NewTasksHandler(jobRepo *db.JobRepo, runner TaskRunner) *TasksHandler {
+	return &TasksHandler{jobRepo: jobRepo, runner: runner}
 }
 
 // ListTasks handles GET /api/v1/tasks.
@@ -54,6 +55,21 @@ func (h *TasksHandler) ListTasks(c *gin.Context) {
 		"page":  page,
 		"limit": limit,
 	})
+}
+
+// intParam extracts an int from a JSON-decoded value (float64/string/int).
+func intParam(v interface{}) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case string:
+		if parsed, err := strconv.Atoi(n); err == nil {
+			return parsed
+		}
+	}
+	return 0
 }
 
 // GetTask handles GET /api/v1/tasks/:id.
@@ -93,7 +109,6 @@ type triggerTaskReq struct {
 }
 
 // TriggerTask handles POST /api/v1/tasks/trigger.
-// Reuses active task if already running/queued (T-706: 复用活动任务).
 func (h *TasksHandler) TriggerTask(c *gin.Context) {
 	var req triggerTaskReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -117,6 +132,45 @@ func (h *TasksHandler) TriggerTask(c *gin.Context) {
 
 	paramsBytes, _ := json.Marshal(req.Params)
 	dedupeKey := req.Kind // Default dedupe key is kind itself to coalesce duplicate triggers
+
+	// Dispatch to the real background worker when available.
+	if h.runner != nil {
+		var (
+			taskID string
+			err    error
+		)
+		switch req.Kind {
+		case "rankings":
+			period, _ := req.Params["period"].(string)
+			rankingType, _ := req.Params["type"].(string)
+			year, _ := req.Params["year"].(string)
+			limit := intParam(req.Params["limit"])
+			taskID, err = h.runner.TriggerRankings(c.Request.Context(), period, rankingType, year, limit)
+		case "sync30d":
+			taskID, err = h.runner.TriggerSync30D(c.Request.Context())
+		case "import_full":
+			taskID, err = h.runner.TriggerImportFull(c.Request.Context())
+		case "scan":
+			rootCID, _ := req.Params["root_cid"].(string)
+			mode, _ := req.Params["mode"].(string)
+			taskID, err = h.runner.TriggerScan(c.Request.Context(), rootCID, mode)
+		case "scrape":
+			taskID, _, err = h.runner.TriggerScrape(c.Request.Context(), "release_date", "", "", true, false, intParam(req.Params["limit"]))
+		}
+		if err != nil && taskID == "" {
+			api.SendError(c, http.StatusInternalServerError, "trigger_failed", err.Error())
+			return
+		}
+		if taskID != "" {
+			c.JSON(http.StatusAccepted, gin.H{
+				"status":  "queued",
+				"task_id": taskID,
+				"kind":    req.Kind,
+				"state":   "queued",
+			})
+			return
+		}
+	}
 
 	job := &models.Job{
 		ID:         "job_" + req.Kind + "_" + uuid.New().String()[:8],

@@ -144,7 +144,7 @@ func (e *AlertEngine) deliverWebhook(alert *models.Alert) {
 	if err != nil {
 		errMsg := err.Error()
 		alert.DeliveryError = &errMsg
-		e.logger.Warn("Failed to deliver alert webhook", "key", alert.Key, "error", err)
+		e.logger.Warn("Failed to deliver alert webhook", "key", alert.Key, "error", err.Error())
 	} else {
 		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {

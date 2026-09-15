@@ -78,8 +78,8 @@ func TestInitEmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query libraries failed: %v", err)
 	}
-	if libCount != 6 {
-		t.Errorf("expected 6 default libraries, got %d", libCount)
+	if libCount != 9 {
+		t.Errorf("expected 9 default libraries (3 ranking + 6 category), got %d", libCount)
 	}
 }
 

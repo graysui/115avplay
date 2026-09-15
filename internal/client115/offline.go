@@ -59,52 +59,54 @@ func (r *RawOfflineTask) Normalize() OfflineTask {
 	return t
 }
 
-// AddBTTask submits a BT task using info_hash and target folder cid.
+// AddBTTask submits a BT/magnet task. The 115 OpenAPI exposes a single
+// add_task_urls endpoint; add_task_bt rejects requests, so a magnet URI is used.
 func (c *Client) AddBTTask(ctx context.Context, infoHash, targetCID string) (string, error) {
-	endpoint := "/open/offline/add_task_bt"
-	form := url.Values{}
-	form.Set("info_hash", strings.ToUpper(infoHash))
-	form.Set("wp_path_id", targetCID)
-
-	resp, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
-	if err != nil {
-		return "", fmt.Errorf("add bt task: %w", err)
-	}
-
-	var res struct {
-		InfoHash string `json:"info_hash"`
-	}
-	_ = json.Unmarshal(resp.Data, &res)
-	if res.InfoHash == "" {
-		res.InfoHash = infoHash
-	}
-	return res.InfoHash, nil
+	magnet := "magnet:?xt=urn:btih:" + strings.TrimSpace(infoHash)
+	return c.AddURLTask(ctx, magnet, targetCID)
 }
 
-// AddURLTask submits an ED2K or HTTP task to target folder cid.
+// AddURLTask submits a magnet/ED2K/HTTP task to the target folder.
+// The OpenAPI expects a single `urls` parameter (multiple URLs separated by newlines).
 func (c *Client) AddURLTask(ctx context.Context, resourceURL, targetCID string) (string, error) {
 	endpoint := "/open/offline/add_task_urls"
 	form := url.Values{}
-	form.Set("url[0]", resourceURL)
+	form.Set("urls", resourceURL)
 	form.Set("wp_path_id", targetCID)
 
-	resp, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	resp, err := c.doRequestWithAuthRetry(ctx, endpoint, form)
 	if err != nil {
 		return "", fmt.Errorf("add url task: %w", err)
 	}
 
-	var res struct {
-		Result []struct {
-			InfoHash string `json:"info_hash"`
-			URL      string `json:"url"`
-			State    bool   `json:"state"`
-			ErrCode  int    `json:"errcode"`
-		} `json:"result"`
+	// The OpenAPI returns a JSON array of per-url results.
+	type addResult struct {
+		State    bool   `json:"state"`
+		Code     int    `json:"code"`
+		Message  string `json:"message"`
+		InfoHash string `json:"info_hash"`
+		URL      string `json:"url"`
 	}
-	_ = json.Unmarshal(resp.Data, &res)
-	if len(res.Result) > 0 && res.Result[0].InfoHash != "" {
-		return res.Result[0].InfoHash, nil
+
+	var results []addResult
+	if err := json.Unmarshal(resp.Data, &results); err == nil && len(results) > 0 {
+		if !results[0].State {
+			return "", fmt.Errorf("115 添加任务失败(code=%d): %s", results[0].Code, results[0].Message)
+		}
+		return results[0].InfoHash, nil
 	}
+
+	// Fallback: some versions wrap the array in {"result": [...]}.
+	var wrapped struct {
+		Result []addResult `json:"result"`
+	}
+	if err := json.Unmarshal(resp.Data, &wrapped); err == nil && len(wrapped.Result) > 0 {
+		if !wrapped.Result[0].State {
+			return "", fmt.Errorf("115 添加任务失败(code=%d): %s", wrapped.Result[0].Code, wrapped.Result[0].Message)
+		}
+		return wrapped.Result[0].InfoHash, nil
+	}
+
 	return "", nil
 }
 

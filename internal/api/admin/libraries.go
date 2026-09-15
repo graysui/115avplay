@@ -25,6 +25,9 @@ func (h *LibrariesHandler) ListLibraries(c *gin.Context) {
 		api.SendError(c, http.StatusInternalServerError, "internal_error", "failed to list libraries: "+err.Error())
 		return
 	}
+	if libs == nil {
+		libs = []models.Library{}
+	}
 	api.SendSuccess(c, libs)
 }
 

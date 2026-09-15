@@ -1,12 +1,15 @@
 package client115
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -201,6 +204,147 @@ func (c *Client) ListFiles(ctx context.Context, cid string, limit, offset int, s
 	return items, rawData.Count, nil
 }
 
+// WalkTree traverses a folder tree using the OpenAPI (one directory per request)
+// and invokes onFile for every file. The 115 OpenAPI has no recursive listing, so
+// directories are listed level by level with bounded concurrency. onProgress is
+// called every 50 directories with the running directory/file counts.
+func (c *Client) WalkTree(ctx context.Context, rootCID string, onProgress func(dirsSeen, filesSeen int), onDirError func(cid string, err error), onFile func(FileItem) error) error {
+	const workers = 6
+
+	visited := map[string]bool{rootCID: true}
+	dirsSeen, filesSeen := 0, 0
+	current := []string{rootCID}
+
+	for len(current) > 0 {
+		sem := make(chan struct{}, workers)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var next []string
+		var firstErr error
+
+		for _, cid := range current {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(cid string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				offset := 0
+				for {
+					items, err := c.listPage(ctx, cid, offset)
+					if err != nil {
+						if ctx.Err() != nil {
+							mu.Lock()
+							if firstErr == nil {
+								firstErr = ctx.Err()
+							}
+							mu.Unlock()
+							return
+						}
+						// Non-fatal: some 115 folders cannot be listed (HTTP 405 etc.). Log
+						// and skip them so the rest of the tree still gets scanned.
+						if onDirError != nil {
+							onDirError(cid, err)
+						}
+						return
+					}
+					if len(items) == 0 {
+						break
+					}
+
+					var subdirs []string
+					var files []FileItem
+					for _, it := range items {
+						if it.IsDir {
+							if it.FileID != "" {
+								subdirs = append(subdirs, it.FileID)
+							}
+							continue
+						}
+						files = append(files, it)
+					}
+
+					mu.Lock()
+					filesSeen += len(files)
+					for _, d := range subdirs {
+						if !visited[d] {
+							visited[d] = true
+							next = append(next, d)
+						}
+					}
+					if onFile != nil {
+						for _, f := range files {
+							if err := onFile(f); err != nil && firstErr == nil {
+								firstErr = err
+							}
+						}
+					}
+					mu.Unlock()
+
+					offset += len(items)
+					// The OpenAPI `count` field is unreliable for pagination; stop when a
+					// short page arrives.
+					if len(items) < 1000 {
+						break
+					}
+				}
+
+				mu.Lock()
+				dirsSeen++
+				ds, fs := dirsSeen, filesSeen
+				mu.Unlock()
+				if onProgress != nil && ds%50 == 0 {
+					onProgress(ds, fs)
+				}
+			}(cid)
+		}
+
+		wg.Wait()
+		if firstErr != nil {
+			return firstErr
+		}
+		current = next
+	}
+
+	if onProgress != nil {
+		onProgress(dirsSeen, filesSeen)
+	}
+	return nil
+}
+
+// listPage lists one page of a directory, preferring the cookie web API when a
+// cookie is configured (the OpenAPI is WAF-protected for bulk listing).
+func (c *Client) listPage(ctx context.Context, cid string, offset int) ([]FileItem, error) {
+	if strings.TrimSpace(c.GetCookie()) != "" {
+		itemss, _, err := c.ListFilesWeb(ctx, cid, 1000, offset, true)
+		return itemss, err
+	}
+	return c.listWithRetry(ctx, cid, offset)
+}
+
+// listWithRetry lists one page, retrying on 115 rate-limit errors.
+func (c *Client) listWithRetry(ctx context.Context, cid string, offset int) ([]FileItem, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		items, _, err := c.ListFiles(ctx, cid, 1000, offset, true, "user_utime", 0)
+		if err == nil {
+			return items, nil
+		}
+		lastErr = err
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.Category == ErrCatRateLimited {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(3 * time.Second):
+				continue
+			}
+		}
+		break
+	}
+	return nil, lastErr
+}
+
 // ListFilesRecursive lists all video files recursively in a tree using type=4&cur=0.
 func (c *Client) ListFilesRecursive(ctx context.Context, cid string, limit, offset int) ([]FileItem, int, error) {
 	if limit <= 0 {
@@ -225,11 +369,26 @@ func (c *Client) ListFilesRecursive(ctx context.Context, cid string, limit, offs
 		return nil, 0, fmt.Errorf("list files recursive: %w", err)
 	}
 
+	// The OpenAPI returns either {"count":N,"data":[...]} or a bare array,
+	// depending on the query (recursive listing returns an array).
+	data := bytes.TrimSpace(resp.Data)
+	if len(data) > 0 && data[0] == '[' {
+		var rawItems []RawFileItem
+		if err := json.Unmarshal(data, &rawItems); err != nil {
+			return nil, 0, fmt.Errorf("unmarshal recursive files data (array): %w", err)
+		}
+		items := make([]FileItem, len(rawItems))
+		for i, r := range rawItems {
+			items[i] = r.Normalize()
+		}
+		return items, len(items), nil
+	}
+
 	var rawData struct {
 		Count int           `json:"count"`
 		Data  []RawFileItem `json:"data"`
 	}
-	if err := json.Unmarshal(resp.Data, &rawData); err != nil {
+	if err := json.Unmarshal(data, &rawData); err != nil {
 		return nil, 0, fmt.Errorf("unmarshal recursive files data: %w", err)
 	}
 
@@ -247,32 +406,48 @@ func (c *Client) GetDownloadURL(ctx context.Context, pickCode string) (*Download
 	form := url.Values{}
 	form.Set("pick_code", pickCode)
 
-	resp, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	resp, err := c.doRequestWithAuthRetry(ctx, endpoint, form)
 	if err != nil {
 		return nil, fmt.Errorf("get download url: %w", err)
 	}
 
 	var dataMap map[string]struct {
-		URL      string `json:"url"`
-		FileSize int64  `json:"file_size"`
-		FileName string `json:"file_name"`
-		FileID   string `json:"file_id"`
-		PickCode string `json:"pick_code"`
+		URL      json.RawMessage `json:"url"`
+		FileSize int64           `json:"file_size"`
+		FileName string          `json:"file_name"`
+		FileID   string          `json:"file_id"`
+		PickCode string          `json:"pick_code"`
 	}
 	if err := json.Unmarshal(resp.Data, &dataMap); err != nil {
 		return nil, fmt.Errorf("unmarshal download url data: %w", err)
 	}
 
-	var item struct {
-		URL      string `json:"url"`
-		FileSize int64  `json:"file_size"`
-		FileName string `json:"file_name"`
-		FileID   string `json:"file_id"`
-		PickCode string `json:"pick_code"`
-	}
-	// Extract first entry from map
+	// `url` may be a plain string or a nested object {"url": "..."}.
+	item := struct {
+		URL      string
+		FileSize int64
+		FileName string
+		FileID   string
+		PickCode string
+	}{}
 	for _, v := range dataMap {
-		item = v
+		item.FileSize = v.FileSize
+		item.FileName = v.FileName
+		item.FileID = v.FileID
+		item.PickCode = v.PickCode
+		if len(v.URL) > 0 {
+			var s string
+			if json.Unmarshal(v.URL, &s) == nil {
+				item.URL = s
+			} else {
+				var nested struct {
+					URL string `json:"url"`
+				}
+				if json.Unmarshal(v.URL, &nested) == nil {
+					item.URL = nested.URL
+				}
+			}
+		}
 		break
 	}
 

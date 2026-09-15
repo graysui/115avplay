@@ -11,6 +11,8 @@ import (
 	"mediavault/internal/identity"
 	"mediavault/internal/models"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type ScrapeResult struct {
@@ -24,6 +26,7 @@ type ScrapeResult struct {
 type Scraper struct {
 	database *db.DB
 	client   *Client
+	jobRepo  *db.JobRepo
 	logger   *slog.Logger
 }
 
@@ -34,6 +37,7 @@ func NewScraper(database *db.DB, client *Client, logger *slog.Logger) *Scraper {
 	return &Scraper{
 		database: database,
 		client:   client,
+		jobRepo:  db.NewJobRepo(database),
 		logger:   logger,
 	}
 }
@@ -388,4 +392,168 @@ func (s *Scraper) handleTransient(ctx context.Context, code, lastStatus string, 
 		_, err := tx.ExecContext(ctx, query, errMsg, nextScrapeAt, now, code)
 		return err
 	})
+}
+
+// ScrapeBatchParams controls a batch scraping run triggered from the admin console.
+type ScrapeBatchParams struct {
+	DateField     string `json:"date_field"`
+	StartDate     string `json:"start_date"`
+	EndDate       string `json:"end_date"`
+	IncludeFailed bool   `json:"include_failed"`
+	IncludeExempt bool   `json:"include_exempt"`
+	Limit         int    `json:"limit"`
+	OnlyIdle      bool   `json:"only_idle"` // only never-scraped (newly ingested) movies
+}
+
+// ScrapeBatchStats summarizes a completed batch scraping run.
+type ScrapeBatchStats struct {
+	Total     int `json:"total"`
+	Processed int `json:"processed"`
+	Succeeded int `json:"succeeded"`
+	Partial   int `json:"partial"`
+	NotFound  int `json:"not_found"`
+	Transient int `json:"transient"`
+	Failed    int `json:"failed"`
+}
+
+// ScrapeBatch creates a scrape job, claims it and processes candidate movies in the
+// background. It reuses an already active scrape job instead of double-scheduling.
+func (s *Scraper) ScrapeBatch(ctx context.Context, params ScrapeBatchParams) (*models.Job, int, error) {
+	dateField := "release_date"
+	if params.DateField == "publish_date" {
+		dateField = "publish_date"
+	}
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+
+	codes, err := s.listCandidates(ctx, dateField, params, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list scrape candidates: %w", err)
+	}
+
+	paramsJSON, _ := json.Marshal(params)
+	job, created, err := s.jobRepo.CreateOrGetJob(ctx, &models.Job{
+		Kind:       "scrape",
+		DedupeKey:  "scrape_batch",
+		ParamsJSON: string(paramsJSON),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("create scrape job: %w", err)
+	}
+	if !created && (job.State == "running" || job.State == "queued" || job.State == "reconcile") {
+		return job, len(codes), nil
+	}
+
+	workerID := "scrape-worker-" + uuid.New().String()[:8]
+	claimed, err := s.jobRepo.ClaimJobByID(ctx, job.ID, workerID, 6*time.Hour)
+	if err != nil || claimed == nil {
+		return job, len(codes), nil
+	}
+
+	go s.executeScrapeBatch(context.Background(), claimed, codes)
+	return claimed, len(codes), nil
+}
+
+func (s *Scraper) listCandidates(ctx context.Context, dateField string, params ScrapeBatchParams, limit int) ([]string, error) {
+	where := "deleted_at IS NULL"
+	var args []interface{}
+
+	if !params.IncludeExempt {
+		where += " AND scrape_policy != 'exempt'"
+	}
+	// Candidates are movies that have not been successfully scraped yet
+	// (newly ingested resources), plus retryable failures.
+	if params.OnlyIdle {
+		where += " AND scrape_status = 'idle'"
+	} else if params.IncludeFailed {
+		where += " AND (scrape_status IN ('idle', 'transient', 'partial', 'not_found'))"
+	} else {
+		where += " AND scrape_status NOT IN ('success')"
+	}
+	if params.StartDate != "" {
+		where += fmt.Sprintf(" AND %s >= ?", dateField)
+		args = append(args, params.StartDate)
+	}
+	if params.EndDate != "" {
+		where += fmt.Sprintf(" AND %s <= ?", dateField)
+		args = append(args, params.EndDate)
+	}
+	args = append(args, limit)
+
+	var codes []string
+	err := s.database.ExecRead(ctx, func(d *sql.DB) error {
+		query := fmt.Sprintf("SELECT code FROM offline_movies WHERE %s ORDER BY updated_at ASC LIMIT ?", where)
+		rows, err := d.QueryContext(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var code string
+			if err := rows.Scan(&code); err != nil {
+				return err
+			}
+			codes = append(codes, code)
+		}
+		return rows.Err()
+	})
+	return codes, err
+}
+
+func (s *Scraper) executeScrapeBatch(ctx context.Context, job *models.Job, codes []string) {
+	s.logger.Info("开始后台批量刮削", "任务", job.ID, "候选数", len(codes))
+
+	stats := ScrapeBatchStats{Total: len(codes)}
+	writeProgress := func() {
+		resBytes, _ := json.Marshal(stats)
+		_ = s.jobRepo.UpdateJobResult(ctx, job.ID, string(resBytes))
+	}
+	writeProgress() // publish the total immediately
+
+	for i, code := range codes {
+		res, err := s.ScrapeMovie(ctx, code)
+		stats.Processed = i + 1
+		if err != nil && res == nil {
+			stats.Failed++
+			// Risk control / circuit open: stop early to avoid escalating a ban.
+			if errors.Is(err, ErrRiskControl) || errors.Is(err, ErrCircuitOpen) {
+				s.logger.Warn("刮削中断：触发风控或熔断", "任务", job.ID, "影片", code, "错误", err.Error())
+				writeProgress()
+				break
+			}
+			s.logger.Warn("刮削失败", "影片", code, "错误", err.Error())
+		} else {
+			switch res.Status {
+			case "success":
+				stats.Succeeded++
+			case "partial":
+				stats.Partial++
+			case "not_found":
+				stats.NotFound++
+			case "transient":
+				stats.Transient++
+			default:
+				stats.Failed++
+			}
+			s.logger.Info("刮削条目完成", "影片", code, "结果", res.Status, "进度", fmt.Sprintf("%d/%d", i+1, len(codes)))
+		}
+
+		// Publish progress after every item so the console updates live.
+		writeProgress()
+		if (i+1)%10 == 0 || i+1 == len(codes) {
+			s.logger.Info("刮削进度",
+				"已处理", i+1, "共", len(codes),
+				"成功", stats.Succeeded, "部分", stats.Partial,
+				"未找到", stats.NotFound, "临时失败", stats.Transient, "失败", stats.Failed)
+		}
+	}
+
+	resBytes, _ := json.Marshal(stats)
+	_ = s.jobRepo.FinishJob(ctx, job.ID, "succeeded", string(resBytes), nil)
+	s.logger.Info("后台批量刮削完成",
+		"任务", job.ID,
+		"成功", stats.Succeeded, "部分", stats.Partial,
+		"未找到", stats.NotFound, "临时失败", stats.Transient, "失败", stats.Failed)
 }

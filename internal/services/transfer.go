@@ -89,35 +89,40 @@ func (tm *TransferManager) StartTransfer(ctx context.Context, binding *models.Cl
 }
 
 func (tm *TransferManager) executeTransfer(ctx context.Context, job *models.Job, binding *models.CloudBinding, magnet *models.Magnet) {
-	tm.logger.Info("starting transfer execution", "job_id", job.ID, "info_hash", magnet.InfoHash)
+	tm.logger.Info("开始转存临时资源", "任务", job.ID, "info_hash", magnet.InfoHash, "影片", magnet.MovieCode)
 
 	// 1. Create exclusive dedicated subfolder in tempRootCID
 	folderName := fmt.Sprintf("mv_tmp_%s", job.ID)
 	tempFolderID, err := tm.c115Client.CreateFolder(ctx, tm.tempRootCID, folderName)
 	if err != nil {
 		errMsg := fmt.Sprintf("create temp folder: %v", err)
+		tm.logger.Warn("转存失败：创建临时目录出错", "任务", job.ID, "错误", err.Error())
 		_ = tm.jobRepo.FinishJob(ctx, job.ID, "failed", "{}", &errMsg)
 		return
 	}
+	tm.logger.Info("已创建临时目录", "任务", job.ID, "目录CID", tempFolderID)
 
-	// 2. Submit offline task to 115
-	var remoteHash string
-	if magnet.ResourceKind == "btih" {
-		remoteHash, err = tm.c115Client.AddBTTask(ctx, magnet.InfoHash, tempFolderID)
-	} else if magnet.ResourceKind == "ed2k" {
-		remoteHash, err = tm.c115Client.AddURLTask(ctx, magnet.MagnetURL, tempFolderID)
-	} else {
+	// 2. Submit offline task to 115. The OpenAPI only supports add_task_urls,
+	// so both magnets (btih) and ed2k links are submitted as a URL.
+	resourceURL := magnet.MagnetURL
+	if resourceURL == "" && magnet.ResourceKind == "btih" {
+		resourceURL = "magnet:?xt=urn:btih:" + magnet.InfoHash
+	}
+	if resourceURL == "" {
 		errMsg := fmt.Sprintf("unsupported resource kind for transfer: %s", magnet.ResourceKind)
+		tm.logger.Warn("转存失败：不支持的资源类型", "任务", job.ID, "类型", magnet.ResourceKind)
 		_ = tm.jobRepo.FinishJob(ctx, job.ID, "failed", "{}", &errMsg)
 		return
 	}
 
+	remoteHash, err := tm.c115Client.AddURLTask(ctx, resourceURL, tempFolderID)
 	if err != nil {
 		// If error indicates unknown status, move to reconcile
-		tm.logger.Warn("offline submission failed or returned unknown, setting reconcile", "job_id", job.ID, "error", err)
+		tm.logger.Warn("提交 115 离线任务失败，转入对账", "任务", job.ID, "错误", err.Error())
 		_ = tm.jobRepo.SetJobReconcile(ctx, job.ID, remoteHash, err.Error())
 		return
 	}
+	tm.logger.Info("已提交 115 离线任务", "任务", job.ID, "info_hash", remoteHash)
 
 	// 3. Poll offline task status until ready (timeout 2 hours)
 	pollCtx, cancel := context.WithTimeout(ctx, 2*time.Hour)
@@ -130,6 +135,7 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, job *models.Job,
 		select {
 		case <-pollCtx.Done():
 			errMsg := "transfer timed out"
+			tm.logger.Warn("转存超时", "任务", job.ID, "info_hash", magnet.InfoHash)
 			_ = tm.jobRepo.FinishJob(ctx, job.ID, "failed", "{}", &errMsg)
 			return
 		case <-ticker.C:
@@ -213,7 +219,7 @@ func (tm *TransferManager) executeTransfer(ctx context.Context, job *models.Job,
 				}
 
 				_ = tm.jobRepo.FinishJob(ctx, job.ID, "succeeded", fmt.Sprintf(`{"asset_id":"%s","file_id":"%s"}`, assetID, bestFile.FileID), nil)
-				tm.logger.Info("transfer completed successfully", "job_id", job.ID, "asset_id", assetID)
+				tm.logger.Info("转存完成，临时资产已就绪", "任务", job.ID, "影片", magnet.MovieCode, "资产", assetID, "文件", bestFile.FileName, "失效时间", expiresAt)
 				return
 			}
 		}

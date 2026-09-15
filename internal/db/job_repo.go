@@ -426,3 +426,35 @@ func (r *JobRepo) CancelJob(ctx context.Context, jobID string) error {
 	})
 }
 
+// FailOrphanedJobs marks all non-terminal jobs as failed. It is called once on
+// startup: any job still marked running/queued belongs to a previous process
+// that crashed or was restarted and can never make progress.
+func (r *JobRepo) FailOrphanedJobs(ctx context.Context) (int, error) {
+	now := models.UTCNow()
+	errMsg := "服务重启导致任务中断，请重新触发"
+	affected := 0
+	err := r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE jobs
+			SET state = 'failed', last_error = ?, completed_at = ?, updated_at = ?
+			WHERE state IN ('running', 'queued', 'retry_wait', 'reconcile');
+		`, errMsg, now, now)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		affected = int(n)
+		return nil
+	})
+	return affected, err
+}
+
+// UpdateJobResult updates a job's result_json without changing its state. Used to
+// expose live progress for long-running tasks (e.g. batch scraping).
+func (r *JobRepo) UpdateJobResult(ctx context.Context, jobID, resultJSON string) error {
+	now := models.UTCNow()
+	return r.db.ExecWrite(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE jobs SET result_json = ?, updated_at = ? WHERE id = ?;`, resultJSON, now, jobID)
+		return err
+	})
+}

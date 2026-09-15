@@ -75,7 +75,7 @@ func (j *JanitorService) RunCleanup(ctx context.Context, cleanupEnabled bool) (c
 		// 4. Submit deletion to 115
 		err = j.c115Client.DeleteFiles(ctx, []string{targetCID})
 		if err != nil {
-			j.logger.Error("delete submission failed on 115", "asset_id", a.ID, "cid", targetCID, "error", err)
+			j.logger.Error("delete submission failed on 115", "asset_id", a.ID, "cid", targetCID, "error", err.Error())
 			errMsg := err.Error()
 			_ = j.assetRepo.UpdateAssetState(ctx, a.ID, "ready", &errMsg) // revert
 			continue

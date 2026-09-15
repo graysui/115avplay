@@ -17,12 +17,14 @@ import (
 type ScraperHandler struct {
 	database *db.DB
 	jobRepo  *db.JobRepo
+	runner   TaskRunner
 }
 
-func NewScraperHandler(database *db.DB, jobRepo *db.JobRepo) *ScraperHandler {
+func NewScraperHandler(database *db.DB, jobRepo *db.JobRepo, runner TaskRunner) *ScraperHandler {
 	return &ScraperHandler{
 		database: database,
 		jobRepo:  jobRepo,
+		runner:   runner,
 	}
 }
 
@@ -82,6 +84,21 @@ func (h *ScraperHandler) TriggerScrape(c *gin.Context) {
 		return
 	}
 
+	// Dispatch to the real batch scraper when the runtime is available.
+	if h.runner != nil {
+		taskID, count, err := h.runner.TriggerScrape(ctx, dateField, req.StartDate, req.EndDate, req.IncludeFailed, req.IncludeExempt, req.Limit)
+		if err != nil {
+			api.SendError(c, http.StatusInternalServerError, "trigger_failed", err.Error())
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":           "queued",
+			"task_id":          taskID,
+			"candidates_count": count,
+		})
+		return
+	}
+
 	paramsBytes, _ := json.Marshal(gin.H{
 		"date_field":     dateField,
 		"start_date":     req.StartDate,
@@ -124,8 +141,31 @@ func (h *ScraperHandler) TriggerScrape(c *gin.Context) {
 func (h *ScraperHandler) GetScraperStatus(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	var idle, success, partial, notFound, transient int
-	var auto, exempt, paused int
+	// Optional date-range filters (same semantics as the trigger form).
+	dateField := "release_date"
+	if c.Query("date_field") == "publish_date" {
+		dateField = "publish_date"
+	}
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	includeExempt := c.Query("include_exempt") == "true" || c.Query("include_exempt") == "1"
+
+	dateClause := ""
+	var args []interface{}
+	if startDate != "" {
+		dateClause += fmt.Sprintf(" AND %s >= ?", dateField)
+		args = append(args, startDate)
+	}
+	if endDate != "" {
+		dateClause += fmt.Sprintf(" AND %s <= ?", dateField)
+		args = append(args, endDate)
+	}
+	if !includeExempt {
+		dateClause += " AND scrape_policy != 'exempt'"
+	}
+
+	var pending, success, partial, notFound, transient, paused int
+	var total, withCover, withTitleZH, withDesc int
 
 	err := h.database.ExecRead(ctx, func(d *sql.DB) error {
 		_ = d.QueryRowContext(ctx, `
@@ -135,14 +175,16 @@ func (h *ScraperHandler) GetScraperStatus(c *gin.Context) {
 				COALESCE(SUM(CASE WHEN scrape_status = 'partial' THEN 1 ELSE 0 END), 0),
 				COALESCE(SUM(CASE WHEN scrape_status = 'not_found' THEN 1 ELSE 0 END), 0),
 				COALESCE(SUM(CASE WHEN scrape_status = 'transient' THEN 1 ELSE 0 END), 0),
-				COALESCE(SUM(CASE WHEN scrape_policy = 'auto' THEN 1 ELSE 0 END), 0),
-				COALESCE(SUM(CASE WHEN scrape_policy = 'exempt' THEN 1 ELSE 0 END), 0),
-				COALESCE(SUM(CASE WHEN scrape_policy = 'paused' THEN 1 ELSE 0 END), 0)
-			FROM offline_movies WHERE deleted_at IS NULL;
-		`).Scan(&idle, &success, &partial, &notFound, &transient, &auto, &exempt, &paused)
+				COALESCE(SUM(CASE WHEN scrape_policy = 'paused' THEN 1 ELSE 0 END), 0),
+				COUNT(*),
+				COALESCE(SUM(CASE WHEN cover_url IS NOT NULL AND cover_url != '' THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN title_zh IS NOT NULL AND title_zh != '' THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN description_zh IS NOT NULL AND description_zh != '' THEN 1 ELSE 0 END), 0)
+			FROM offline_movies WHERE deleted_at IS NULL`+dateClause+`;
+		`, args...).Scan(&pending, &success, &partial, &notFound, &transient, &paused,
+			&total, &withCover, &withTitleZH, &withDesc)
 		return nil
 	})
-
 	if err != nil {
 		api.SendError(c, http.StatusInternalServerError, "internal_error", "failed to get scraper status: "+err.Error())
 		return
@@ -157,16 +199,25 @@ func (h *ScraperHandler) GetScraperStatus(c *gin.Context) {
 
 	api.SendSuccess(c, gin.H{
 		"scrape_status": gin.H{
-			"idle":      idle,
-			"success":   success,
+			"idle":      pending, // 待刮削：元数据不完整（缺封面或标题）
+			"success":   success, // 元数据已完整
 			"partial":   partial,
 			"not_found": notFound,
 			"transient": transient,
 		},
 		"policy": gin.H{
-			"auto":   auto,
-			"exempt": exempt,
 			"paused": paused,
+		},
+		"missing": gin.H{
+			"total":       total,
+			"no_cover":    total - withCover,
+			"no_title_zh": total - withTitleZH,
+			"no_desc":     total - withDesc,
+		},
+		"filters": gin.H{
+			"date_field": dateField,
+			"start_date": startDate,
+			"end_date":   endDate,
 		},
 		"active_job": activeJob,
 	})

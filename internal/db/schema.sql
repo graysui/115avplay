@@ -252,18 +252,30 @@ CREATE INDEX idx_progress_resume ON user_progress(user_id,played,last_played_at 
 CREATE TABLE libraries (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
-    predicate TEXT NOT NULL CHECK(predicate IN ('chinese_sub','censored','uncensored','4k','fc2','domestic')),
+    predicate TEXT NOT NULL CHECK(predicate IN ('chinese_sub','censored','uncensored','4k','fc2','domestic','ranking_weekly','ranking_monthly','ranking_top250')),
     sort_order INTEGER NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
     cover_url TEXT
 );
 INSERT INTO libraries(id,name,predicate,sort_order) VALUES
- ('lib_chinese_sub','中文字幕','chinese_sub',1),
- ('lib_censored','亚洲有码','censored',2),
- ('lib_uncensored','亚洲无码','uncensored',3),
- ('lib_4k','4K原版','4k',4),
- ('lib_fc2','FC2/素人','fc2',5),
- ('lib_domestic','国产','domestic',6);
+ ('lib_rank_weekly','周榜','ranking_weekly',1),
+ ('lib_rank_monthly','月榜','ranking_monthly',2),
+ ('lib_rank_top250','TOP250','ranking_top250',3),
+ ('lib_chinese_sub','中文字幕','chinese_sub',4),
+ ('lib_censored','亚洲有码','censored',5),
+ ('lib_uncensored','亚洲无码','uncensored',6),
+ ('lib_4k','4K原版','4k',7),
+ ('lib_fc2','FC2/素人','fc2',8),
+ ('lib_domestic','国产','domestic',9);
+CREATE TABLE ranking_entries (
+    board TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    title TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (board, code)
+);
+CREATE INDEX idx_ranking_entries_board_rank ON ranking_entries(board, rank);
 
 CREATE TABLE system_settings (
     key TEXT PRIMARY KEY NOT NULL,

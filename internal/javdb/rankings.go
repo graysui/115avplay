@@ -50,7 +50,7 @@ type SyncRankingsParams struct {
 }
 
 // SyncRankings imports or updates movies appearing on JavDB ranking boards.
-func (s *RankingsService) SyncRankings(ctx context.Context, params SyncRankingsParams) error {
+func (s *RankingsService) SyncRankings(ctx context.Context, params SyncRankingsParams) (*models.Job, error) {
 	dedupeKey := fmt.Sprintf("rankings:%s:%s:%s", params.Period, params.RankingType, params.Year)
 	paramsJSON, _ := json.Marshal(params)
 
@@ -60,30 +60,41 @@ func (s *RankingsService) SyncRankings(ctx context.Context, params SyncRankingsP
 		ParamsJSON: string(paramsJSON),
 	})
 	if err != nil {
-		return fmt.Errorf("create rankings job: %w", err)
+		return nil, fmt.Errorf("create rankings job: %w", err)
 	}
 	if !created && (job.State == "running" || job.State == "queued") {
-		return nil // Already running
+		return job, nil // Already running
 	}
 
 	workerID := "rankings-worker"
 	claimed, err := s.jobRepo.ClaimJobByID(ctx, job.ID, workerID, 7200*time.Second)
 	if err != nil || claimed == nil {
-		return fmt.Errorf("claim rankings job: %w", err)
+		return job, fmt.Errorf("claim rankings job: %w", err)
 	}
 
 	go s.executeRankings(context.Background(), claimed, params)
-	return nil
+	return claimed, nil
 }
 
 func (s *RankingsService) executeRankings(ctx context.Context, job *models.Job, params SyncRankingsParams) {
-	s.logger.Info("executing rankings sync", "period", params.Period, "type", params.RankingType)
+	s.logger.Info("开始同步 JavDB 榜单", "任务", job.ID, "周期", params.Period, "类型", params.RankingType, "年份", params.Year)
 
 	var movies []RankingMovieDTO
 	var err error
 
 	if params.Period == "top250" {
-		movies, err = s.client.GetTop250Page(ctx, 1, params.RankingType, params.Year)
+		// Fetch all 250 entries (the API returns 50 per page).
+		for start := 1; start <= 250; start += 50 {
+			page, perr := s.client.GetTop250Page(ctx, start, params.RankingType, params.Year)
+			if perr != nil {
+				err = perr
+				break
+			}
+			if len(page) == 0 {
+				break
+			}
+			movies = append(movies, page...)
+		}
 	} else {
 		movies, err = s.client.GetRankings(ctx, params.Period, params.RankingType)
 	}
@@ -160,6 +171,32 @@ func (s *RankingsService) executeRankings(ctx context.Context, job *models.Job, 
 	}
 	resBytes, _ := json.Marshal(resultMap)
 
+	// Persist the board entries so the virtual ranking libraries can list them
+	// (the libraries only expose movies that have playable resources).
+	board := params.Period
+	if board == "" {
+		board = "weekly"
+	}
+	var codes, titles []string
+	for _, rm := range movies {
+		if rm.VideoType == "western" || rm.VideoType == "vr" || rm.VideoType == "photo" {
+			continue
+		}
+		code, _ := identity.NormalizeCode(rm.Number)
+		if code == "" {
+			continue
+		}
+		codes = append(codes, code)
+		titles = append(titles, rm.Title)
+	}
+	if len(codes) > 0 {
+		if err := s.movieRepo.UpsertRankingEntries(ctx, board, codes, titles); err != nil {
+			s.logger.Warn("写入榜单条目失败", "榜单", board, "错误", err.Error())
+		} else {
+			s.logger.Info("榜单条目已更新", "榜单", board, "数量", len(codes))
+		}
+	}
+
 	_ = s.jobRepo.FinishJob(ctx, job.ID, "succeeded", string(resBytes), nil)
-	s.logger.Info("rankings sync completed", "job_id", job.ID, "stats", resultMap)
+	s.logger.Info("JavDB 榜单同步完成", "任务", job.ID, "拉取", len(movies), "处理", processedCount, "刮削", scrapedCount)
 }

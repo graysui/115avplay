@@ -42,7 +42,10 @@ func (e *APIError) Error() string {
 
 // ClientConfig holds configuration for the 115 OpenAPI client.
 type ClientConfig struct {
-	BaseURL     string        // Default: https://proapi.115.com or https://passportapi.115.com
+	BaseURL     string        // Default: https://proapi.115.com (file/offline API)
+	AuthBaseURL string        // Default: https://passportapi.115.com (OAuth endpoints)
+	WebBaseURL  string        // Default: https://webapi.115.com (cookie web API)
+	Cookie      string        // Optional 115 web cookie (UID/CID/SEID/KID) for listing
 	ProxyURL    string        // Optional HTTP/SOCKS5 proxy
 	Timeout     time.Duration // Default: 15s
 	UserAgent   string        // Default: MediaVault/1.0
@@ -56,26 +59,57 @@ type Client struct {
 	semaphore   chan struct{}
 	authMu      sync.RWMutex
 	accessToken string
+	cookieMu    sync.RWMutex
+	cookie      string
+	refreshMu   sync.Mutex
+	refreshFn   func(context.Context) error
+}
+
+// SetTokenRefresher registers a callback used to refresh the OAuth access token
+// when an API call fails with an authentication error.
+func (c *Client) SetTokenRefresher(fn func(context.Context) error) {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	c.refreshFn = fn
 }
 
 // NewClient creates a new 115 OpenAPI client.
 func NewClient(cfg ClientConfig) (*Client, error) {
+	customBase := cfg.BaseURL != ""
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://proapi.115.com"
+	}
+	if cfg.AuthBaseURL == "" {
+		// OAuth endpoints live on passportapi.115.com; when a custom BaseURL is
+		// supplied (tests / self-hosted proxy) reuse it so all traffic is mocked.
+		if customBase {
+			cfg.AuthBaseURL = cfg.BaseURL
+		} else {
+			cfg.AuthBaseURL = "https://passportapi.115.com"
+		}
+	}
+	if cfg.WebBaseURL == "" {
+		if customBase {
+			cfg.WebBaseURL = cfg.BaseURL
+		} else {
+			cfg.WebBaseURL = "https://webapi.115.com"
+		}
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 15 * time.Second
 	}
 	if cfg.UserAgent == "" {
-		cfg.UserAgent = "MediaVault/1.0"
+		// A 115 app User-Agent makes the OpenAPI return CDN links without the
+		// "f=1" User-Agent lock, so Emby clients can direct-play them.
+		cfg.UserAgent = "115disk/2.0"
 	}
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = 4
 	}
 
 	transport := &http.Transport{
-		MaxIdleConns:        10,
-		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConns:       10,
+		IdleConnTimeout:    90 * time.Second,
 		DisableCompression: false,
 	}
 
@@ -96,7 +130,49 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		httpClient: httpClient,
 		config:     cfg,
 		semaphore:  make(chan struct{}, cfg.Concurrency),
+		cookie:     cfg.Cookie,
 	}, nil
+}
+
+// SetCookie sets the 115 web cookie used for cookie-based listing.
+func (c *Client) SetCookie(cookie string) {
+	c.cookieMu.Lock()
+	defer c.cookieMu.Unlock()
+	c.cookie = cookie
+}
+
+// GetCookie returns the configured 115 web cookie.
+func (c *Client) GetCookie() string {
+	c.cookieMu.RLock()
+	defer c.cookieMu.RUnlock()
+	return c.cookie
+}
+
+// WebBaseURL returns the base URL for the cookie web API.
+func (c *Client) WebBaseURL() string {
+	return c.config.WebBaseURL
+}
+
+// doRequestWithAuthRetry issues a POST form request, refreshing the OAuth token
+// once and retrying if the server reports an authentication failure.
+func (c *Client) doRequestWithAuthRetry(ctx context.Context, endpoint string, form url.Values) (*BaseResponse, error) {
+	body := form.Encode()
+	resp, err := c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(body), "application/x-www-form-urlencoded")
+	if err == nil {
+		return resp, nil
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Category == ErrCatAuth {
+		c.refreshMu.Lock()
+		fn := c.refreshFn
+		c.refreshMu.Unlock()
+		if fn != nil {
+			if rerr := fn(ctx); rerr == nil {
+				return c.DoRequest(ctx, "POST", endpoint, nil, strings.NewReader(body), "application/x-www-form-urlencoded")
+			}
+		}
+	}
+	return resp, err
 }
 
 // SetAccessToken sets the current active OAuth access token.
@@ -111,6 +187,11 @@ func (c *Client) GetAccessToken() string {
 	c.authMu.RLock()
 	defer c.authMu.RUnlock()
 	return c.accessToken
+}
+
+// GetAuthBaseURL returns the base URL used for OAuth endpoints.
+func (c *Client) GetAuthBaseURL() string {
+	return c.config.AuthBaseURL
 }
 
 // BaseResponse represents the common 115 JSON response structure.
@@ -236,7 +317,7 @@ func (c *Client) DoRequest(ctx context.Context, method, endpoint string, query u
 		return nil, &APIError{
 			Category:   ErrCatTransient,
 			StatusCode: resp.StatusCode,
-			Message:    fmt.Sprintf("invalid JSON response: %v", err),
+			Message:    fmt.Sprintf("invalid JSON response (HTTP %d): %v; body=%.300s", resp.StatusCode, err, string(respBytes)),
 			RawBody:    string(respBytes),
 		}
 	}
@@ -261,7 +342,11 @@ func classifyErrorCode(code int, msg string) ErrorCategory {
 	if strings.Contains(msgLower, "token") || strings.Contains(msgLower, "auth") || code == 990001 || code == 401 {
 		return ErrCatAuth
 	}
-	if strings.Contains(msgLower, "access limit") || strings.Contains(msgLower, "访问上限") || strings.Contains(msgLower, "频繁") || code == 990002 {
+	// Only treat 990002 as rate limiting when the message actually says so; 115 also
+	// uses 990002 for plain parameter errors ("参数错误").
+	if strings.Contains(msgLower, "access limit") || strings.Contains(msgLower, "访问上限") ||
+		strings.Contains(msgLower, "频繁") || strings.Contains(msgLower, "rate limit") ||
+		strings.Contains(msgLower, "too many") {
 		return ErrCatRateLimited
 	}
 	if strings.Contains(msgLower, "不存在") || strings.Contains(msgLower, "not exist") || strings.Contains(msgLower, "not found") || code == 20002 || code == 404 {

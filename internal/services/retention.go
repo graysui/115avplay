@@ -13,7 +13,6 @@ import (
 	"mediavault/internal/db"
 )
 
-
 // RetentionManager enforces storage budgets, cache size limits, and data retention policies.
 type RetentionManager struct {
 	database     *db.DB
@@ -53,7 +52,7 @@ func (rm *RetentionManager) CheckDiskSpace(ctx context.Context) (bool, uint64, u
 
 	freeBytes, err := GetFreeDiskSpace(rm.dataDir)
 	if err != nil {
-		rm.logger.Warn("Failed to check free disk space", "error", err)
+		rm.logger.Warn("Failed to check free disk space", "error", err.Error())
 		return true, 0, minFreeBytes, nil // Fallback to allowing on query error
 	}
 

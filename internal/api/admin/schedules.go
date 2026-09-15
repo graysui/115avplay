@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 type SchedulesHandler struct {
 	settingsRepo *db.SettingsRepo
 }
@@ -28,6 +27,9 @@ func (h *SchedulesHandler) ListSchedules(c *gin.Context) {
 	if err != nil {
 		api.SendError(c, http.StatusInternalServerError, "internal_error", "failed to list schedules: "+err.Error())
 		return
+	}
+	if schedules == nil {
+		schedules = []models.Schedule{}
 	}
 	api.SendSuccess(c, schedules)
 }

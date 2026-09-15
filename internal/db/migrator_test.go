@@ -207,7 +207,7 @@ func TestLegacyV0Migration(t *testing.T) {
 	// 7. Verify libraries and settings exist
 	libRepo := NewLibraryRepo(database)
 	libs, err := libRepo.ListLibraries(ctx)
-	if err != nil || len(libs) != 6 {
-		t.Fatalf("expected 6 default libraries, got %d (err=%v)", len(libs), err)
+	if err != nil || len(libs) != 9 {
+		t.Fatalf("expected 9 default libraries (3 ranking + 6 category), got %d (err=%v)", len(libs), err)
 	}
 }

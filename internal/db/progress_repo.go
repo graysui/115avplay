@@ -150,12 +150,12 @@ func (r *ProgressRepo) ListResumeMovies(ctx context.Context, userID string, limi
 	}
 
 	query := `
-		SELECT m.code, m.title, m.official_title, m.category, m.publish_date, m.release_date, m.first_seen_at,
-		       m.preview_images, m.source_websites, m.title_zh, m.description_zh, m.cover_url, m.poster_url,
-		       m.actors, m.tags, m.maker, m.director, m.score, m.runtime_ticks, m.is_enriched, m.scrape_policy,
-		       m.policy_reason, m.scrape_status, m.scrape_failed_reason, m.not_found_count, m.last_not_found_day,
-		       m.partial_attempts, m.next_scrape_at, m.last_scraped_at, m.metadata_sources, m.manual_fields,
-		       m.legacy_metadata, m.deleted_at, m.created_at, m.updated_at,
+		SELECT m.code, m.title, COALESCE(m.official_title,''), m.category, m.publish_date, m.release_date, m.first_seen_at,
+		       m.preview_images, COALESCE(m.source_websites,'[]'), m.title_zh, m.description_zh, m.cover_url, m.poster_url,
+		       COALESCE(m.actors,'[]'), COALESCE(m.tags,'[]'), m.maker, m.director, m.score, m.runtime_ticks, m.is_enriched, COALESCE(m.scrape_policy,'auto'),
+		       m.policy_reason, COALESCE(m.scrape_status,'idle'), m.scrape_failed_reason, m.not_found_count, m.last_not_found_day,
+		       m.partial_attempts, m.next_scrape_at, m.last_scraped_at, COALESCE(m.metadata_sources,'{}'), COALESCE(m.manual_fields,'[]'),
+		       COALESCE(m.legacy_metadata,'{}'), m.deleted_at, m.created_at, m.updated_at,
 		       p.user_id, p.movie_code, p.active_session_id, p.position_ticks, p.duration_ticks,
 		       p.played, p.favorite, p.play_count, p.last_played_at, p.updated_at
 		FROM user_progress p
@@ -250,4 +250,3 @@ func (r *ProgressRepo) UpsertProgress(ctx context.Context, p *models.UserProgres
 		return err
 	})
 }
-

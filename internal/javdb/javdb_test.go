@@ -64,33 +64,39 @@ func setupMockJavDBServer() *httptest.Server {
 				})
 			}
 
-		case "/api/v1/movies/mov_123":
+		case "/api/v2/movies/mov_123":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": true,
 				"data": map[string]interface{}{
-					"id":             "mov_123",
-					"number":         "SSIS-123",
-					"title":          "SSIS-123 Full Title",
-					"title_zh":       "SSIS-123 中文标题",
-					"description_zh": "这是中文剧情简介",
-					"cover_url":      "https://img.javdb.com/cover123.jpg",
-					"score":          4.5,
-					"release_date":   "2026-01-01",
-					"actors":         []string{"Actor A", "Actor B"},
-					"tags":           []string{"Tag 1", "Tag 2"},
-					"maker":          "S1",
-					"director":       "Director X",
+					"movie": map[string]interface{}{
+						"id":             "mov_123",
+						"number":         "SSIS-123",
+						"title":          "SSIS-123 Full Title",
+						"title_zh":       "SSIS-123 中文标题",
+						"description_zh": "这是中文剧情简介",
+						"cover_url":      "https://img.javdb.com/cover123.jpg",
+						"score":          "4.5",
+						"release_date":   "2026-01-01",
+						"duration":       120,
+						"type":           "censored",
+						"maker_name":     "S1",
+						"director_name":  "Director X",
+						"actors":         []map[string]interface{}{{"name": "Actor A"}, {"name": "Actor B"}},
+						"tags":           []map[string]interface{}{{"name": "Tag 1"}, {"name": "Tag 2"}},
+					},
 				},
 			})
 
-		case "/api/v1/movies/mov_partial":
+		case "/api/v2/movies/mov_partial":
 			// Missing title_zh and description_zh
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": true,
 				"data": map[string]interface{}{
-					"id":     "mov_partial",
-					"number": "PART-001",
-					"title":  "PART-001 Title",
+					"movie": map[string]interface{}{
+						"id":     "mov_partial",
+						"number": "PART-001",
+						"title":  "PART-001 Title",
+					},
 				},
 			})
 
@@ -100,12 +106,11 @@ func setupMockJavDBServer() *httptest.Server {
 				"data": map[string]interface{}{
 					"magnets": []map[string]interface{}{
 						{
-							"name":       "SSIS-123-C 1080P",
-							"magnet_url": "magnet:?xt=urn:btih:1111222233334444555566667777888899990000",
-							"size_bytes": 2000000000,
-							"has_hd":     true,
-							"has_sub":    true,
-							"seeders":    15,
+							"name":  "SSIS-123-C 1080P",
+							"hash":  "1111222233334444555566667777888899990000",
+							"size":  1907,
+							"hd":    true,
+							"cnsub": true,
 						},
 					},
 				},
